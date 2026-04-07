@@ -1,0 +1,11 @@
+{
+  "eval_id": 0,
+  "eval_name": "header-documentation",
+  "prompt": "Please document the file `lib/boards/busBoard/busDataSource.hpp` following the house style. Focus on the module header (especially the exported list) and Doxygen blocks for methods.",
+  "assertions": [
+    "Contains 'Exported Functions/Classes' section with class methods",
+    "Uses Doxygen-style /** @brief ... */ for all methods",
+    "Has a correct 'Module:' path relative to root",
+    "Preserves all existing code logic"
+  ]
+}

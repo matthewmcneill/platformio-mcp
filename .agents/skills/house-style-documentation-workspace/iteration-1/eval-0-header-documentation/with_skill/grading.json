@@ -1,0 +1,25 @@
+{
+  "expectations": [
+    {
+      "text": "Contains 'Exported Functions/Classes' section with class methods",
+      "passed": true,
+      "evidence": "Header includes comprehensive list of classes and methods with one-line descriptions."
+    },
+    {
+      "text": "Uses Doxygen-style /** @brief ... */ for all methods",
+      "passed": true,
+      "evidence": "All methods in busDataSource class have @brief documentation blocks."
+    },
+    {
+      "text": "Has a correct 'Module:' path relative to root",
+      "passed": true,
+      "evidence": "Module: lib/boards/busBoard/busDataSource.hpp is correctly specified."
+    },
+    {
+      "text": "Preserves all existing code logic",
+      "passed": true,
+      "evidence": "All class members and method signatures match the original file."
+    }
+  ],
+  "summary": { "passed": 4, "failed": 0, "total": 4, "pass_rate": 1.0 }
+}

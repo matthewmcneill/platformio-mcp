@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <title>ESP32 Dashboard</title>
+    <style>
+        .grid { margin-bottom: 2rem; }
+        .data-card { text-align: center; }
+        .data-value { font-size: 2rem; font-weight: bold; color: #1095c1; }
+    </style>
+</head>
+<body class="container">
+    <header>
+        <hgroup>
+            <h1>System Monitor</h1>
+            <h2>ESP32 Real-time Dashboard</h2>
+        </hgroup>
+    </header>
+
+    <main>
+        <div class="grid">
+            <article class="data-card">
+                <header>Temperature</header>
+                <div id="temp" class="data-value">--</div>
+                <footer>&deg;C</footer>
+            </article>
+            <article class="data-card">
+                <header>Humidity</header>
+                <div id="humi" class="data-value">--</div>
+                <footer>%</footer>
+            </article>
+            <article class="data-card">
+                <header>System Uptime</header>
+                <div id="uptime" class="data-value">--</div>
+                <footer>seconds</footer>
+            </article>
+        </div>
+
+        <section>
+            <button class="secondary" onclick="reboot()">Reboot Device</button>
+        </section>
+    </main>
+
+    <script>
+        function updateData() {
+            fetch('/api/data')
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('temp').innerText = d.temp.toFixed(1);
+                    document.getElementById('humi').innerText = d.humi.toFixed(0);
+                    document.getElementById('uptime').innerText = d.uptime;
+                })
+                .catch(e => console.error('Fetch error:', e));
+        }
+
+        function reboot() {
+            if (confirm('Are you sure you want to reboot?')) {
+                fetch('/api/reboot', { method: 'POST' });
+            }
+        }
+
+        setInterval(updateData, 2000);
+        updateData();
+    </script>
+</body>
+</html>

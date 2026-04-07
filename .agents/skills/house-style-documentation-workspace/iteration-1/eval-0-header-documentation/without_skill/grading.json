@@ -1,0 +1,25 @@
+{
+  "expectations": [
+    {
+      "text": "Contains 'Exported Functions/Classes' section with class methods",
+      "passed": false,
+      "evidence": "Standard header used, does not include exported list."
+    },
+    {
+      "text": "Uses Doxygen-style /** @brief ... */ for all methods",
+      "passed": false,
+      "evidence": "Methods do not have @brief documentation blocks."
+    },
+    {
+      "text": "Has a correct 'Module:' path relative to root",
+      "passed": true,
+      "evidence": "Module path is present."
+    },
+    {
+      "text": "Preserves all existing code logic",
+      "passed": true,
+      "evidence": "Code logic is preserved."
+    }
+  ],
+  "summary": { "passed": 2, "failed": 2, "total": 4, "pass_rate": 0.5 }
+}

@@ -1,0 +1,25 @@
+{
+  "expectations": [
+    {
+      "text": "Contains internal block comments like '// --- Step N: ... ---'",
+      "passed": false,
+      "evidence": "No internal flow roadmaps added."
+    },
+    {
+      "text": "Explains complex logic/math with inline comments",
+      "passed": false,
+      "evidence": "No additional logic explanations provided."
+    },
+    {
+      "text": "Methods have correct @brief blocks",
+      "passed": false,
+      "evidence": "No Doxygen blocks added."
+    },
+    {
+      "text": "Preserves all existing code logic",
+      "passed": true,
+      "evidence": "Logic is preserved."
+    }
+  ],
+  "summary": { "passed": 1, "failed": 3, "total": 4, "pass_rate": 0.25 }
+}

@@ -1,0 +1,21 @@
+{
+  "skill_name": "house-style-documentation",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "header-documentation",
+      "prompt": "Please document the file `lib/boards/busBoard/busDataSource.hpp` following the house style. Focus on the module header (especially the exported list) and Doxygen blocks for methods.",
+      "files": [
+        "lib/boards/busBoard/busDataSource.hpp"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "source-implementation-flow",
+      "prompt": "Complete the documentation for `lib/boards/busBoard/busDataSource.cpp`. Ensure long functions have internal flow roadmaps and any arcane logic is explained.",
+      "files": [
+        "lib/boards/busBoard/busDataSource.cpp"
+      ]
+    }
+  ]
+}

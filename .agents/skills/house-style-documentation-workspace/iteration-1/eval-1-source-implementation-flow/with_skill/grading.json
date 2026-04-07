@@ -1,0 +1,25 @@
+{
+  "expectations": [
+    {
+      "text": "Contains internal block comments like '// --- Step N: ... ---'",
+      "passed": true,
+      "evidence": "Function updateData() now contains Step 1 to Step 5 block comments."
+    },
+    {
+      "text": "Explains complex logic/math with inline comments",
+      "passed": true,
+      "evidence": "Added comments explaining the status code mapping and HTML scraper vehicle tag logic."
+    },
+    {
+      "text": "Methods have correct @brief blocks",
+      "passed": true,
+      "evidence": "All method implementations have @brief Doxygen blocks."
+    },
+    {
+      "text": "Preserves all existing code logic",
+      "passed": true,
+      "evidence": "Implementation logic is unchanged."
+    }
+  ],
+  "summary": { "passed": 4, "failed": 0, "total": 4, "pass_rate": 1.0 }
+}

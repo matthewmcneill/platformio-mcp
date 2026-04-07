@@ -1,0 +1,11 @@
+{
+  "eval_id": 1,
+  "eval_name": "source-implementation-flow",
+  "prompt": "Complete the documentation for `lib/boards/busBoard/busDataSource.cpp`. Ensure long functions have internal flow roadmaps and any arcane logic is explained.",
+  "assertions": [
+    "Contains internal block comments like '// --- Step N: ... ---'",
+    "Explains complex logic/math with inline comments",
+    "Methods have correct @brief blocks",
+    "Preserves all existing code logic"
+  ]
+}
