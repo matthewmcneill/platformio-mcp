@@ -40,7 +40,7 @@ export function startPortalServer(defaultPort = 8080) {
   app.use(express.static(webDistPath));
 
   io.on('connection', (socket) => {
-    socket.emit('connection_established', { message: 'Connected to Antigravity PIO Backend' });
+    socket.emit('connection_established', { message: 'Connected to PIO MCP Backend' });
     
     // Provide initial status state
     socket.emit('server_status', { timestamp: Date.now(), status: 'online' });
@@ -56,7 +56,7 @@ export function startPortalServer(defaultPort = 8080) {
 
   httpServer.listen(port, () => {
     console.error(`\n======================================================`);
-    console.error(`🚀 Antigravity Web Portal running at: http://localhost:${port}`);
+    console.error(`🚀 MCP Server Web Portal running at: http://localhost:${port}`);
     console.error(`======================================================\n`);
   });
 

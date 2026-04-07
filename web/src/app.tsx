@@ -74,7 +74,7 @@ function App() {
     <div className="app-container">
       <header className="app-header">
         <div className="header-brand">
-          <h1>Antigravity PIO</h1>
+          <h1>PIO MCP Server</h1>
           <div className={`status-badge ${status}`}>
             <span className="dot"></span>
             {status.toUpperCase()}
