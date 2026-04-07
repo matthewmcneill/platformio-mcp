@@ -14,6 +14,7 @@
  */
 
 import { z } from 'zod';
+import type { DiagnosticSummary } from './utils/diagnostics.js';
 
 // ============================================================================
 // Command Result Types
@@ -66,12 +67,14 @@ export interface SerialDevice {
   port: string;
   description: string;
   hwid: string;
+  detectedBoard?: string;
 }
 
 export const SerialDeviceSchema = z.object({
   port: z.string(),
   description: z.string(),
   hwid: z.string(),
+  detectedBoard: z.string().optional(),
 });
 
 export const DevicesArraySchema = z.array(SerialDeviceSchema);
@@ -107,8 +110,11 @@ export interface ProjectInitResult {
 export interface BuildResult {
   success: boolean;
   environment: string;
-  output: string;
+  output?: string;
   errors?: string[];
+  ramUsageBytes?: number;
+  flashUsageBytes?: number;
+  diagnostics?: DiagnosticSummary;
 }
 
 export interface CleanResult {
@@ -135,8 +141,9 @@ export const UploadConfigSchema = z.object({
 export interface UploadResult {
   success: boolean;
   port?: string;
-  output: string;
+  output?: string;
   errors?: string[];
+  diagnostics?: DiagnosticSummary;
 }
 
 // ============================================================================
@@ -147,18 +154,20 @@ export interface MonitorConfig {
   port?: string;
   baud?: number;
   projectDir?: string;
+  durationSeconds?: number;
 }
 
 export const MonitorConfigSchema = z.object({
   port: z.string().optional(),
   baud: z.number().positive().optional(),
   projectDir: z.string().optional(),
+  durationSeconds: z.number().positive().optional().default(5),
 });
 
 export interface MonitorResult {
   success: boolean;
-  message: string;
-  command?: string;
+  bufferOutput: string;
+  panicTriggered: boolean;
 }
 
 // ============================================================================
@@ -305,6 +314,7 @@ export const StartMonitorParamsSchema = z.object({
   port: z.string().optional().describe('Serial port to monitor (auto-detected if not specified)'),
   baud: z.number().optional().describe('Baud rate for serial communication'),
   projectDir: z.string().optional().describe('Project directory (for environment-specific settings)'),
+  durationSeconds: z.number().optional().describe('Duration to read from the serial port in seconds'),
 });
 
 // Search libraries parameters

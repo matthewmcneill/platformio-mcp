@@ -5,10 +5,14 @@
  * 
  * Provides:
  * - mapVidPidToBoard: Resolves hardware names for the device list tool based on VID/PID or description
- * - VID_PID_DATABASE: Dictionary mapping USB raw strings to development boards
+ * - vidPidDatabase: Dictionary mapping USB raw strings to development boards
+ * - boardPatterns: Regex patterns for matching hardware descriptions
  */
 
-export const VID_PID_DATABASE: Record<string, { boards: string[]; confidence: string }> = {
+/**
+ * Database mapping USB VID:PID raw strings to their known development boards
+ */
+export const vidPidDatabase: Record<string, { boards: string[]; confidence: string }> = {
   '2341:0043': { boards: ['uno'], confidence: 'high' },
   '2341:0042': { boards: ['megaatmega2560'], confidence: 'high' },
   '2341:8036': { boards: ['leonardo'], confidence: 'high' },
@@ -19,7 +23,10 @@ export const VID_PID_DATABASE: Record<string, { boards: string[]; confidence: st
   '0483:374b': { boards: ['nucleo_f103rb'], confidence: 'high' },
 };
 
-export const BOARD_PATTERNS = [
+/**
+ * Regex patterns for deriving board types from strings like manufacturer or description
+ */
+export const boardPatterns = [
   { patterns: [/CP210[0-9]/i, /Silicon Labs/i], boardType: 'ESP32', boards: ['esp32dev', 'esp32-c3-devkitm-1'] },
   { patterns: [/CH340/i, /CH341/i], boardType: 'ESP32/ESP8266/Arduino', boards: ['nodemcuv2', 'esp32dev', 'uno'] },
   { patterns: [/NodeMCU/i], boardType: 'ESP8266', boards: ['nodemcuv2', 'nodemcu'] },
@@ -45,14 +52,14 @@ export function mapVidPidToBoard(hwid: string, description: string = ''): string
                       
   if (vidPidMatch) {
     const vidPidStr = `${vidPidMatch[1]}:${vidPidMatch[2]}`.toLowerCase();
-    if (VID_PID_DATABASE[vidPidStr]) {
-      return VID_PID_DATABASE[vidPidStr].boards[0];
+    if (vidPidDatabase[vidPidStr]) {
+      return vidPidDatabase[vidPidStr].boards[0];
     }
   }
   
   // Fallback to pattern matching against descriptions and ids
   const matchText = `${description} ${hwid}`;
-  for (const pattern of BOARD_PATTERNS) {
+  for (const pattern of boardPatterns) {
     if (pattern.patterns.some(p => p.test(matchText))) {
       return pattern.boards[0];
     }

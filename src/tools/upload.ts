@@ -13,6 +13,8 @@ import type { UploadResult } from '../types.js';
 import { validateProjectPath, validateEnvironmentName, validateSerialPort } from '../utils/validation.js';
 import { UploadError, PlatformIOError } from '../utils/errors.js';
 import { parseStderrErrors } from '../utils/errors.js';
+import { serialManager } from '../utils/serial-manager.js';
+import { diagnoseError } from '../utils/diagnostics.js';
 
 /**
  * Uploads firmware to a connected device.
@@ -37,6 +39,9 @@ export async function uploadFirmware(
     throw new UploadError(`Invalid serial port: ${port}`, { port });
   }
 
+  const lockTarget = port || 'auto';
+  serialManager.lockPort(lockTarget);
+
   try {
     const args: string[] = ['run', '--target', 'upload'];
 
@@ -57,12 +62,14 @@ export async function uploadFirmware(
 
     const success = result.exitCode === 0;
     const errors = success ? undefined : parseStderrErrors(result.stderr);
+    const diagnostics = success ? undefined : diagnoseError(result.stderr);
 
     return {
       success,
       port,
-      output: result.stdout,
+      output: success ? undefined : result.stdout,
       errors,
+      diagnostics
     };
   } catch (error) {
     if (error instanceof PlatformIOError) {
@@ -75,6 +82,8 @@ export async function uploadFirmware(
       `Failed to upload firmware: ${error}`,
       { projectDir, port, environment }
     );
+  } finally {
+    serialManager.unlockPort(lockTarget);
   }
 }
 
@@ -101,6 +110,9 @@ export async function uploadAndMonitor(
     throw new UploadError(`Invalid serial port: ${port}`, { port });
   }
 
+  const lockTarget = port || 'auto';
+  serialManager.lockPort(lockTarget);
+
   try {
     const args: string[] = ['run', '--target', 'upload', '--target', 'monitor'];
 
@@ -120,12 +132,14 @@ export async function uploadAndMonitor(
 
     const success = result.exitCode === 0;
     const errors = success ? undefined : parseStderrErrors(result.stderr);
+    const diagnostics = success ? undefined : diagnoseError(result.stderr);
 
     return {
       success,
       port,
-      output: result.stdout,
+      output: success ? undefined : result.stdout,
       errors,
+      diagnostics
     };
   } catch (error) {
     if (error instanceof PlatformIOError) {
@@ -138,6 +152,8 @@ export async function uploadAndMonitor(
       `Failed to upload and monitor: ${error}`,
       { projectDir, port, environment }
     );
+  } finally {
+    serialManager.unlockPort(lockTarget);
   }
 }
 

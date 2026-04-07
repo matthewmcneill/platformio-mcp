@@ -15,6 +15,7 @@ import { platformioExecutor } from '../platformio.js';
 import type { SerialDevice } from '../types.js';
 import { DevicesArraySchema } from '../types.js';
 import { PlatformIOError } from '../utils/errors.js';
+import { mapVidPidToBoard } from '../utils/hardware-maps.js';
 
 /**
  * Lists all connected serial devices.
@@ -28,9 +29,16 @@ export async function listDevices(): Promise<SerialDevice[]> {
       ['list'],
       DevicesArraySchema,
       { timeout: 10000 }
-    );
+    ) as SerialDevice[];
 
-    return result;
+    // Enhance discovered devices with mapped board information
+    return result.map(device => {
+      const detectedBoard = mapVidPidToBoard(device.hwid, device.description);
+      if (detectedBoard) {
+        return { ...device, detectedBoard };
+      }
+      return device;
+    });
   } catch (error) {
     // If no devices are found, PlatformIO may return an error or empty array
     // Handle gracefully by returning empty array

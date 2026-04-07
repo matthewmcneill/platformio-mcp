@@ -1,182 +1,112 @@
 /**
  * Serial Monitor Tools
- * Serial monitor tools and process spawning.
+ * Autonomous serial log monitoring and hardware assertion tool.
  * 
  * Provides:
- * - startMonitor: Provides generalized monitor process handler.
- * - getMonitorCommand: Generates standard PIO monitor string.
- * - getMonitorCommandWithFilters: Appends diagnostic filters to CLI list.
- * - getRawMonitorInstructions: Appends raw bitstream payload parsing options.
+ * - readSerial: Actively binds to a serial port, collects output, and checks for system crash logs.
  */
 
+import { SerialPort } from 'serialport';
 import type { MonitorResult } from '../types.js';
-import { validateSerialPort, validateBaudRate, validateProjectPath } from '../utils/validation.js';
+import { validateSerialPort, validateBaudRate } from '../utils/validation.js';
 import { PlatformIOError } from '../utils/errors.js';
+import { serialManager } from '../utils/serial-manager.js';
+import { getFirstDevice } from './devices.js';
 
 /**
- * Provides information and command for starting a serial monitor.
- * Note: The actual monitor is interactive and can't run in the background,
- * so we return instructions for the user.
+ * Actively monitors a serial port for a set duration, capturing logs and watching for crash panics.
  * 
- * @param port - Optional specific serial port to interface with.
- * @param baud - Optional baud rate communication speed.
- * @param projectDir - Optional target local PIO project root.
- * @returns Metadata wrapper payload containing instruction context.
+ * @param port - Optional specific serial port. If omitted, attempts to auto-discover.
+ * @param baud - Baud rate communication speed (defaults to 115200).
+ * @param durationSeconds - How long to sample the serial output (defaults to 5).
+ * @returns Harvested buffer log and panic flag via MonitorResult.
  */
-export async function startMonitor(
+export async function readSerial(
   port?: string,
-  baud?: number,
-  projectDir?: string
+  baud: number = 115200,
+  durationSeconds: number = 5
 ): Promise<MonitorResult> {
-  // Validate inputs
-  if (port && !validateSerialPort(port)) {
-    throw new PlatformIOError(`Invalid serial port: ${port}`, 'INVALID_PORT', { port });
+
+  // Auto-detect port if none provided
+  let activePort = port;
+  if (!activePort) {
+    const defaultDevice = await getFirstDevice();
+    if (!defaultDevice) {
+      throw new PlatformIOError('No serial devices detected to monitor.', 'PORT_NOT_FOUND');
+    }
+    activePort = defaultDevice.port;
+  }
+
+  if (!validateSerialPort(activePort)) {
+    throw new PlatformIOError(`Invalid serial port format: ${activePort}`, 'INVALID_PORT');
   }
 
   if (baud && !validateBaudRate(baud)) {
-    throw new PlatformIOError(`Invalid baud rate: ${baud}`, 'INVALID_BAUD', { baud });
+    throw new PlatformIOError(`Invalid baud rate: ${baud}`, 'INVALID_BAUD');
   }
 
-  if (projectDir) {
-    try {
-      validateProjectPath(projectDir);
-    } catch (error) {
-      throw new PlatformIOError(`Invalid project directory: ${error}`, 'INVALID_PATH', { projectDir });
-    }
+  // Prevent accessing a port currently being flashed
+  if (serialManager.isLocked(activePort)) {
+    throw new PlatformIOError(`Port is currently busy (likely flashing): ${activePort}`, 'PORT_BUSY');
   }
 
-  // Build the command
-  let command = 'pio device monitor';
+  // Claim the token
+  serialManager.lockPort(activePort);
 
-  if (port) {
-    command += ` --port ${port}`;
-  }
+  return new Promise((resolve, reject) => {
+    let bufferOutput = '';
+    let panicTriggered = false;
 
-  if (baud) {
-    command += ` --baud ${baud}`;
-  }
+    // TypeScript might warn if it doesn't recognize activePort is definitely a string, but it is.
+    const serial = new SerialPort({ path: activePort as string, baudRate: baud });
 
-  if (projectDir) {
-    command = `cd ${projectDir} && ${command}`;
-  }
+    // Fallback safety timeout
+    const timeout = setTimeout(() => {
+      serial.close();
+      serialManager.unlockPort(activePort as string);
+      resolve({
+        success: true,
+        bufferOutput,
+        panicTriggered
+      });
+    }, durationSeconds * 1000);
 
-  const message = 
-    'Serial monitor requires interactive terminal access. ' +
-    'Please run the following command in your terminal:\n\n' +
-    `  ${command}\n\n` +
-    'Press Ctrl+C to exit the monitor.\n\n' +
-    'Note: If port and baud rate are not specified, PlatformIO will auto-detect them ' +
-    'from your platformio.ini configuration.';
+    serial.on('data', (data: Buffer) => {
+      const text = data.toString('utf8');
+      bufferOutput += text;
 
-  return {
-    success: true,
-    message,
-    command,
-  };
-}
+      // Realtime crash monitoring
+      if (
+        bufferOutput.includes('abort()') || 
+        bufferOutput.includes('Guru Meditation Error') || 
+        bufferOutput.includes('panic')
+      ) {
+        panicTriggered = true;
+        clearTimeout(timeout);
+        serial.close();
+        serialManager.unlockPort(activePort as string);
+        resolve({
+          success: true,
+          bufferOutput: bufferOutput.trim(),
+          panicTriggered
+        });
+      }
+    });
 
-/**
- * Gets the monitor command string for a project.
- * 
- * @param port - Optional serial com path.
- * @param baud - Optional serial rate.
- * @param projectDir - Associated project reference path.
- * @returns Ready-to-execute terminal CLI string.
- */
-export function getMonitorCommand(
-  port?: string,
-  baud?: number,
-  projectDir?: string
-): string {
-  let command = 'pio device monitor';
-
-  if (port) {
-    command += ` --port ${port}`;
-  }
-
-  if (baud) {
-    command += ` --baud ${baud}`;
-  }
-
-  if (projectDir) {
-    command = `cd ${projectDir} && ${command}`;
-  }
-
-  return command;
-}
-
-/**
- * Gets monitor command with custom filters.
- * 
- * @param options - Assorted filtering configuration options.
- * @returns Generated CLI invocation text.
- */
-export function getMonitorCommandWithFilters(options: {
-  port?: string;
-  baud?: number;
-  projectDir?: string;
-  filters?: string[];
-  echo?: boolean;
-  eol?: 'CR' | 'LF' | 'CRLF';
-}): string {
-  let command = 'pio device monitor';
-
-  if (options.port) {
-    command += ` --port ${options.port}`;
-  }
-
-  if (options.baud) {
-    command += ` --baud ${options.baud}`;
-  }
-
-  if (options.echo !== undefined) {
-    command += ` --echo`;
-  }
-
-  if (options.eol) {
-    command += ` --eol ${options.eol}`;
-  }
-
-  if (options.filters && options.filters.length > 0) {
-    for (const filter of options.filters) {
-      command += ` --filter ${filter}`;
-    }
-  }
-
-  if (options.projectDir) {
-    command = `cd ${options.projectDir} && ${command}`;
-  }
-
-  return command;
-}
-
-/**
- * Provides instructions for using the raw monitor mode.
- * 
- * @param port - Specified raw port to watch.
- * @param baud - UART rate synchronization value.
- * @returns Structured instructional summary for the developer.
- */
-export function getRawMonitorInstructions(port: string, baud: number): MonitorResult {
-  if (!validateSerialPort(port)) {
-    throw new PlatformIOError(`Invalid serial port: ${port}`, 'INVALID_PORT', { port });
-  }
-
-  if (!validateBaudRate(baud)) {
-    throw new PlatformIOError(`Invalid baud rate: ${baud}`, 'INVALID_BAUD', { baud });
-  }
-
-  const command = `pio device monitor --port ${port} --baud ${baud} --raw`;
-
-  const message = 
-    'Raw monitor mode provides unfiltered serial output.\n' +
-    'Run the following command in your terminal:\n\n' +
-    `  ${command}\n\n` +
-    'Press Ctrl+C to exit the monitor.';
-
-  return {
-    success: true,
-    message,
-    command,
-  };
+    serial.on('error', (err: any) => {
+      clearTimeout(timeout);
+      serialManager.unlockPort(activePort as string);
+      
+      // If we already collected some data, just return it as a success with the buffer
+      if (bufferOutput.length > 0) {
+        resolve({
+          success: true,
+          bufferOutput: bufferOutput.trim(),
+          panicTriggered
+        });
+      } else {
+        reject(new PlatformIOError(`Serial monitor error: ${err.message}`, 'MONITOR_ERROR'));
+      }
+    });
+  });
 }

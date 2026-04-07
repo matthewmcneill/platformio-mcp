@@ -5,16 +5,24 @@
  * Copyright (c) ToponexTech. Licensed under the MIT License.
  * 
  * Provides:
+ * - DiagnosticSummary: Interface representing a structured error payload
  * - diagnoseError: Analyzes stderr to produce a structured DiagnosticSummary
+ * - errorPatterns: Constant array of standard compilation error matchers
  */
 
+/**
+ * Represents a structured response for a captured compilation error 
+ */
 export interface DiagnosticSummary {
   errorType: 'MissingHeader' | 'MemoryOverflow' | 'PortBusy' | 'SyntaxError' | 'LinkingError' | 'Unknown';
   summary: string;
   truncatedStderr: string;
 }
 
-const ERROR_PATTERNS = [
+/**
+ * Array of regex matchers and solutions for common PlatformIO/C++ compile errors
+ */
+const errorPatterns = [
   {
     pattern: /Missing header file:.*|No such file or directory.*\.h/i,
     type: 'MissingHeader' as const,
@@ -61,7 +69,7 @@ export function diagnoseError(stderr: string): DiagnosticSummary {
     };
   }
 
-  for (const entry of ERROR_PATTERNS) {
+  for (const entry of errorPatterns) {
     if (entry.pattern.test(stderr)) {
       // Find the first line that matches the pattern for a concise truncated log
       const lines = stderr.split('\n');

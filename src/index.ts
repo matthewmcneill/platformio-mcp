@@ -35,7 +35,7 @@ import { listDevices } from './tools/devices.js';
 import { initProject } from './tools/projects.js';
 import { buildProject, cleanProject } from './tools/build.js';
 import { uploadFirmware } from './tools/upload.js';
-import { startMonitor } from './tools/monitor.js';
+import { readSerial } from './tools/monitor.js';
 import { searchLibraries, installLibrary, listInstalledLibraries } from './tools/libraries.js';
 import { checkPlatformIOInstalled } from './platformio.js';
 import { formatPlatformIOError } from './utils/errors.js';
@@ -173,8 +173,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'start_monitor',
-        description: 'Provides instructions and command for starting serial monitor to view device output. Monitor requires interactive terminal.',
+        name: 'read_serial',
+        description: 'Actively binds to a serial port, collects output, and checks for system crash logs within a bounded time window.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -184,11 +184,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             baud: {
               type: 'number',
-              description: 'Optional baud rate (e.g., 9600, 115200)',
+              description: 'Optional baud rate (e.g., 9600, 115200). Defaults to 115200.',
             },
-            projectDir: {
-              type: 'string',
-              description: 'Optional project directory for environment-specific settings',
+            durationSeconds: {
+              type: 'number',
+              description: 'Duration to sample the serial output in seconds (default: 5)',
             },
           },
         },
@@ -346,9 +346,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'start_monitor': {
+      case 'read_serial': {
         const params = StartMonitorParamsSchema.parse(args);
-        const result = await startMonitor(params.port, params.baud, params.projectDir);
+        const result = await readSerial(params.port, params.baud, params.durationSeconds);
         return {
           content: [
             {

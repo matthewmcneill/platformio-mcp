@@ -14,6 +14,7 @@ import type { BuildResult, CleanResult } from '../types.js';
 import { validateProjectPath, validateEnvironmentName } from '../utils/validation.js';
 import { BuildError, PlatformIOError } from '../utils/errors.js';
 import { parseStderrErrors } from '../utils/errors.js';
+import { diagnoseError } from '../utils/diagnostics.js';
 
 /**
  * Builds a PlatformIO project.
@@ -48,12 +49,27 @@ export async function buildProject(
 
     const success = result.exitCode === 0;
     const errors = success ? undefined : parseStderrErrors(result.stderr);
+    const diagnostics = success ? undefined : diagnoseError(result.stderr);
+
+    let ramUsageBytes: number | undefined;
+    let flashUsageBytes: number | undefined;
+
+    if (success) {
+      const ramMatch = result.stdout.match(/RAM:.*?used\s+(\d+)\s+bytes/i);
+      if (ramMatch) ramUsageBytes = parseInt(ramMatch[1], 10);
+      
+      const flashMatch = result.stdout.match(/Flash:.*?used\s+(\d+)\s+bytes/i);
+      if (flashMatch) flashUsageBytes = parseInt(flashMatch[1], 10);
+    }
 
     return {
       success,
       environment: environment || 'default',
-      output: result.stdout,
+      output: success ? undefined : result.stdout, // Strictly token-optimized payload
       errors,
+      diagnostics,
+      ramUsageBytes,
+      flashUsageBytes
     };
   } catch (error) {
     if (error instanceof PlatformIOError) {
@@ -141,12 +157,27 @@ export async function buildTarget(
 
     const success = result.exitCode === 0;
     const errors = success ? undefined : parseStderrErrors(result.stderr);
+    const diagnostics = success ? undefined : diagnoseError(result.stderr);
+    
+    let ramUsageBytes: number | undefined;
+    let flashUsageBytes: number | undefined;
+
+    if (success) {
+      const ramMatch = result.stdout.match(/RAM:.*?used\s+(\d+)\s+bytes/i);
+      if (ramMatch) ramUsageBytes = parseInt(ramMatch[1], 10);
+      
+      const flashMatch = result.stdout.match(/Flash:.*?used\s+(\d+)\s+bytes/i);
+      if (flashMatch) flashUsageBytes = parseInt(flashMatch[1], 10);
+    }
 
     return {
       success,
       environment: environment || 'default',
-      output: result.stdout,
+      output: success ? undefined : result.stdout, // Strictly token-optimized payload
       errors,
+      diagnostics,
+      ramUsageBytes,
+      flashUsageBytes
     };
   } catch (error) {
     if (error instanceof PlatformIOError) {
