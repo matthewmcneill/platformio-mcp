@@ -125,7 +125,7 @@ Create a modular TypeScript project structure with clear separation of concerns,
 16. **`src/utils/SerialManager.ts`** - **[NEW]** Singleton tracking `tty` port states across operations.
 17. **`src/utils/hardwareMaps.ts`** - **[NEW]** Contains USB VID:PID dictionary to enrich hardware IDs into human-readable board names.
 18. **`README.md`** - Comprehensive documentation, usage examples, board-agnostic guide.
-19. **`llms-install.md`** - AI-friendly installation guide for Cline/Agents.
+19. **`llms-install.md`** - AI-friendly installation guide for Antigravity, Cline, and other Agents.
 20. **`.gitignore`** - Node.js/TypeScript ignores.
 21. **`LICENSE`** - MIT License.
 22. **`tests/platformio.test.ts`** - Unit tests for CLI wrapper.

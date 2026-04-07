@@ -15,6 +15,7 @@ import { UploadError, PlatformIOError } from '../utils/errors.js';
 import { parseStderrErrors } from '../utils/errors.js';
 import { serialManager } from '../utils/serial-manager.js';
 import { diagnoseError } from '../utils/diagnostics.js';
+import { startSpoolingDaemon, stopSpoolingDaemon } from './monitor.js';
 
 /**
  * Uploads firmware to a connected device.
@@ -40,6 +41,7 @@ export async function uploadFirmware(
   }
 
   const lockTarget = port || 'auto';
+  stopSpoolingDaemon(lockTarget); // Always halt spooler prior to claiming the lock
   serialManager.lockPort(lockTarget);
 
   try {
@@ -63,6 +65,10 @@ export async function uploadFirmware(
     const success = result.exitCode === 0;
     const errors = success ? undefined : parseStderrErrors(result.stderr);
     const diagnostics = success ? undefined : diagnoseError(result.stderr);
+
+    if (success) {
+      startSpoolingDaemon(lockTarget).catch(e => console.error("Auto-spooler failed to restart after upload", e));
+    }
 
     return {
       success,
@@ -111,6 +117,7 @@ export async function uploadAndMonitor(
   }
 
   const lockTarget = port || 'auto';
+  stopSpoolingDaemon(lockTarget);
   serialManager.lockPort(lockTarget);
 
   try {
@@ -133,6 +140,10 @@ export async function uploadAndMonitor(
     const success = result.exitCode === 0;
     const errors = success ? undefined : parseStderrErrors(result.stderr);
     const diagnostics = success ? undefined : diagnoseError(result.stderr);
+
+    if (success) {
+      startSpoolingDaemon(lockTarget).catch(e => console.error("Auto-spooler failed to restart after upload", e));
+    }
 
     return {
       success,

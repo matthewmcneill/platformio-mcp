@@ -101,6 +101,7 @@ All file names and code symbols MUST follow standard TypeScript conventions.
 - **File Names**: Use strictly `kebab-case.ts` (e.g., `board-manager.ts`).
 - **Types, Interfaces, Classes, Schemas**: Use `PascalCase` (e.g., `PlatformIOExecutor`, `BoardInfo`, `GetBoardInfoParamsSchema`).
 - **Functions, Methods, Variables**: Use `camelCase` (e.g., `getBoardInfo`, `listBoards`).
+- **Global / Module-Scoped Constants**: Use `UPPER_SNAKE_CASE` for immutable static data (e.g., `DEFAULT_TIMEOUT`, `LOG_DIR`).
 
 ---
 

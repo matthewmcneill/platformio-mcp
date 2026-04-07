@@ -4,7 +4,7 @@
 
 # PlatformIO MCP Server
 
-A board-agnostic Model Context Protocol (MCP) server for [PlatformIO](https://platformio.org) embedded development. This server enables AI agents like [Cline](https://github.com/cline/cline) to interact with PlatformIO's comprehensive ecosystem of **1,000+ development boards** across **30+ platforms**.
+A board-agnostic Model Context Protocol (MCP) server for [PlatformIO](https://platformio.org) embedded development. This server enables AI agents like [Antigravity](https://github.com/google-deepmind/antigravity) and [Cline](https://github.com/cline/cline) to interact with PlatformIO's comprehensive ecosystem of **1,000+ development boards** across **30+ platforms**.
 
 ## Features
 
@@ -206,7 +206,13 @@ Lists installed libraries (globally or for a project).
 **Parameters:**
 - `projectDir` (optional): Project directory (lists global libraries if not specified)
 
-## Usage with Cline
+## Usage with AI Agents
+
+### Antigravity
+
+Antigravity will automatically use the MCP interface when running in the workspace. Simply execute `npm run dev` to bring the server and concurrent web dashboard online, and let the agent manage the rest.
+
+### Cline
 
 1. **Install the server** following the installation instructions above
 
@@ -346,6 +352,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - **PlatformIO Boards**: https://docs.platformio.org/en/latest/boards/
 - **PlatformIO Libraries**: https://registry.platformio.org
 - **Model Context Protocol**: https://modelcontextprotocol.io
+- **Antigravity**: An autonomous AI coding assistant.
 - **Cline**: https://github.com/cline/cline
 
 ## Support

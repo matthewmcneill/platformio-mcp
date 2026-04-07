@@ -35,10 +35,12 @@ import { listDevices } from './tools/devices.js';
 import { initProject } from './tools/projects.js';
 import { buildProject, cleanProject } from './tools/build.js';
 import { uploadFirmware } from './tools/upload.js';
-import { readSerial } from './tools/monitor.js';
+import { queryLogs, startSpoolingDaemon, stopSpoolingDaemon } from './tools/monitor.js';
 import { searchLibraries, installLibrary, listInstalledLibraries } from './tools/libraries.js';
 import { checkPlatformIOInstalled } from './platformio.js';
 import { formatPlatformIOError } from './utils/errors.js';
+import { startPortalServer } from './api/server.js';
+import { portalEvents } from './api/events.js';
 
 // Create server instance
 const server = new Server(
@@ -173,25 +175,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: 'read_serial',
-        description: 'Actively binds to a serial port, collects output, and checks for system crash logs within a bounded time window.',
+        name: 'query_logs',
+        description: 'Scans the latest active background serial trace spool, returning a filtered string block.',
         inputSchema: {
           type: 'object',
           properties: {
-            port: {
-              type: 'string',
-              description: 'Optional serial port (auto-detected if not specified)',
-            },
-            baud: {
-              type: 'number',
-              description: 'Optional baud rate (e.g., 9600, 115200). Defaults to 115200.',
-            },
-            durationSeconds: {
-              type: 'number',
-              description: 'Duration to sample the serial output in seconds (default: 5)',
-            },
+            lines: { type: 'number', description: 'Fetch this many tail lines from the end of the log (default: 100)' },
+            searchPattern: { type: 'string', description: 'Optional Regex pattern to filter the spool for specific keywords.' }
+          }
+        }
+      },
+      {
+        name: 'start_spooling',
+        description: 'Manually start or restart the background serial-to-disk spooler for a specific device.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            port: { type: 'string', description: 'Optional COM path. Falls back to default.' },
+            baud: { type: 'number', description: 'Optional baud rate.' }
+          }
+        }
+      },
+      {
+        name: 'stop_spooling',
+        description: 'Kills the active background serial listener and unlocks the UART.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            port: { type: 'string', description: 'COM port to stop listening on.' }
           },
-        },
+          required: ['port']
+        }
       },
       {
         name: 'search_libraries',
@@ -252,8 +266,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
   try {
-    const { name, arguments: args } = request.params;
+    portalEvents.emitActivity(name, args || {}, true);
 
     switch (name) {
       case 'list_boards': {
@@ -346,16 +361,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      case 'read_serial': {
-        const params = StartMonitorParamsSchema.parse(args);
-        const result = await readSerial(params.port, params.baud, params.durationSeconds);
+      case 'query_logs': {
+        const result = await queryLogs(args.lines, args.searchPattern);
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+        };
+      }
+
+      case 'start_spooling': {
+        const result = await startSpoolingDaemon(args.port, args.baud);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+        };
+      }
+
+      case 'stop_spooling': {
+        stopSpoolingDaemon(args.port);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: true, message: `Terminated listener on ${args.port}` }, null, 2) }]
         };
       }
 
@@ -406,6 +429,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   } catch (error) {
     const errorMessage = formatPlatformIOError(error);
+    portalEvents.emitActivity(request.params.name, request.params.arguments || {}, false);
     return {
       content: [
         {
@@ -429,6 +453,9 @@ async function main() {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Start background portal server
+  startPortalServer();
 
   console.error('PlatformIO MCP Server running on stdio');
   console.error('Server supports 1000+ boards across 30+ platforms');

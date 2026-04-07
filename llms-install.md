@@ -1,6 +1,6 @@
 # PlatformIO MCP Server - AI Installation Guide
 
-This guide is designed for AI agents like Cline to successfully set up the PlatformIO MCP Server.
+This guide is designed for AI agents like Antigravity and Cline to successfully set up the PlatformIO MCP Server.
 
 ## Prerequisites Check
 
@@ -145,6 +145,11 @@ To use this server with Cline, add it to your MCP settings:
 }
 ```
 
+## Configuration for Antigravity
+
+If you are using Antigravity, integration is simple. Ensure the workspace is active, and the MCP tools will be naturally available when running `npm run dev` from the repository root. Antigravity requires no heavy JSON configuration!
+
+
 ## Troubleshooting
 
 ### Issue: "Cannot find module '@modelcontextprotocol/sdk'"
@@ -248,7 +253,7 @@ The PlatformIO MCP Server provides 11 tools:
 
 The server works with **ANY** board supported by PlatformIO (1000+ boards). No hardcoded configurations needed. Users just specify the board ID (e.g., "esp32dev", "uno", "nucleo_f401re").
 
-### Example Usage Through Cline
+### Example Usage Through AI Agents (Antigravity / Cline)
 
 Once configured, users can interact naturally:
 
@@ -285,4 +290,4 @@ Installation is successful when:
 - ✅ `node build/index.js` starts the server
 - ✅ PlatformIO CLI responds to `pio --version`
 
-Once all criteria are met, the server is ready for use with Cline!
+Once all criteria are met, the server is ready for use with Antigravity, Cline, and other AI agents!
