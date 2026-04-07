@@ -1,5 +1,14 @@
 /**
- * Board discovery and information tools
+ * Board Information Tools
+ * Board discovery and information tools.
+ * 
+ * Provides:
+ * - listBoards: Retrieves structured catalog of defined boards.
+ * - getBoardInfo: Retrieves data about a specific board ID.
+ * - listBoardsByPlatform: Retrieves catalog organized by platform ID.
+ * - searchBoards: Queries boards by features.
+ * - listPlatforms: Retrieves all supported platforms list.
+ * - listFrameworks: Retrieves all supported architectures.
  */
 
 import { z } from 'zod';
@@ -16,7 +25,10 @@ import { BoardNotFoundError, PlatformIOError } from '../utils/errors.js';
 const PioBoardsOutputSchema = z.record(z.array(BoardInfoSchema));
 
 /**
- * Lists all available PlatformIO boards with optional filtering
+ * Lists all available PlatformIO boards with optional filtering.
+ * 
+ * @param filter - Search criteria for limiting board query.
+ * @returns Array of boards matching the filter.
  */
 export async function listBoards(filter?: string): Promise<BoardInfo[]> {
   try {
@@ -63,7 +75,10 @@ export async function listBoards(filter?: string): Promise<BoardInfo[]> {
 }
 
 /**
- * Gets detailed information about a specific board
+ * Gets detailed information about a specific board.
+ * 
+ * @param boardId - The exact board identifier token.
+ * @returns Comprehensive details object for the given board.
  */
 export async function getBoardInfo(boardId: string): Promise<BoardInfo> {
   if (!validateBoardId(boardId)) {
@@ -103,7 +118,9 @@ export async function getBoardInfo(boardId: string): Promise<BoardInfo> {
 }
 
 /**
- * Lists boards grouped by platform
+ * Lists boards grouped by platform.
+ * 
+ * @returns A dictionary mapping platform names to arrays of BoardInfo.
  */
 export async function listBoardsByPlatform(): Promise<Record<string, BoardInfo[]>> {
   try {
@@ -124,7 +141,10 @@ export async function listBoardsByPlatform(): Promise<Record<string, BoardInfo[]
 }
 
 /**
- * Searches for boards matching specific criteria
+ * Searches for boards matching specific criteria.
+ * 
+ * @param criteria - Object containing platform, framework, mcu, and/or name conditions.
+ * @returns Filtered list of BoardInfo complying with the specified attributes.
  */
 export async function searchBoards(criteria: {
   platform?: string;
@@ -154,7 +174,9 @@ export async function searchBoards(criteria: {
 }
 
 /**
- * Gets a list of all available platforms
+ * Gets a list of all available platforms.
+ * 
+ * @returns Alphabetically sorted array of distinct platform identifiers.
  */
 export async function listPlatforms(): Promise<string[]> {
   const boardsByPlatform = await listBoardsByPlatform();
@@ -162,7 +184,9 @@ export async function listPlatforms(): Promise<string[]> {
 }
 
 /**
- * Gets a list of all available frameworks across all boards
+ * Gets a list of all available frameworks across all boards.
+ * 
+ * @returns Alphabetically sorted array of available framework references.
  */
 export async function listFrameworks(): Promise<string[]> {
   const allBoards = await listBoards();

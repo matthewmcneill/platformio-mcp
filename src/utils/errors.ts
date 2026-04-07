@@ -1,5 +1,19 @@
 /**
- * Custom error classes and error formatting utilities
+ * Error Handling Utilities
+ * Custom error classes and error formatting utilities.
+ * 
+ * Provides:
+ * - PlatformIOError: Base error class.
+ * - PlatformIONotInstalledError: Environment configuration error.
+ * - BoardNotFoundError: Board resolution error.
+ * - ProjectInitError: Initialization failure error.
+ * - BuildError: Compilation failure error.
+ * - UploadError: Upload execution error.
+ * - LibraryError: Dependency resolution error.
+ * - CommandTimeoutError: Process timeout error.
+ * - formatPlatformIOError: Standardizes error messages.
+ * - parseStderrErrors: Extracts error codes from output.
+ * - isPlatformIONotFoundError: Validates environment issues.
  */
 
 /**
@@ -91,7 +105,10 @@ export class CommandTimeoutError extends PlatformIOError {
 }
 
 /**
- * Formats a PlatformIO error into a user-friendly message with troubleshooting hints
+ * Formats a PlatformIO error into a user-friendly message with troubleshooting hints.
+ * 
+ * @param error - The raw error caught from execution.
+ * @returns Formatted and localized troubleshooting message.
  */
 export function formatPlatformIOError(error: unknown): string {
   if (error instanceof PlatformIONotInstalledError) {
@@ -155,7 +172,10 @@ export function formatPlatformIOError(error: unknown): string {
 }
 
 /**
- * Extracts relevant error information from PlatformIO CLI stderr output
+ * Extracts relevant error information from PlatformIO CLI stderr output.
+ * 
+ * @param stderr - Target output string buffer to search.
+ * @returns Array of identified critical error messages.
  */
 export function parseStderrErrors(stderr: string): string[] {
   const errors: string[] = [];
@@ -181,7 +201,10 @@ export function parseStderrErrors(stderr: string): string[] {
 }
 
 /**
- * Checks if an error indicates PlatformIO is not installed
+ * Checks if an error indicates PlatformIO is not installed.
+ * 
+ * @param error - Caught exception object block.
+ * @returns True if error originates from missing command interpreter.
  */
 export function isPlatformIONotFoundError(error: unknown): boolean {
   if (error instanceof Error) {

@@ -1,5 +1,12 @@
 /**
- * Serial monitor tools
+ * Serial Monitor Tools
+ * Serial monitor tools and process spawning.
+ * 
+ * Provides:
+ * - startMonitor: Provides generalized monitor process handler.
+ * - getMonitorCommand: Generates standard PIO monitor string.
+ * - getMonitorCommandWithFilters: Appends diagnostic filters to CLI list.
+ * - getRawMonitorInstructions: Appends raw bitstream payload parsing options.
  */
 
 import type { MonitorResult } from '../types.js';
@@ -7,9 +14,14 @@ import { validateSerialPort, validateBaudRate, validateProjectPath } from '../ut
 import { PlatformIOError } from '../utils/errors.js';
 
 /**
- * Provides information and command for starting a serial monitor
+ * Provides information and command for starting a serial monitor.
  * Note: The actual monitor is interactive and can't run in the background,
- * so we return instructions for the user
+ * so we return instructions for the user.
+ * 
+ * @param port - Optional specific serial port to interface with.
+ * @param baud - Optional baud rate communication speed.
+ * @param projectDir - Optional target local PIO project root.
+ * @returns Metadata wrapper payload containing instruction context.
  */
 export async function startMonitor(
   port?: string,
@@ -64,7 +76,12 @@ export async function startMonitor(
 }
 
 /**
- * Gets the monitor command string for a project
+ * Gets the monitor command string for a project.
+ * 
+ * @param port - Optional serial com path.
+ * @param baud - Optional serial rate.
+ * @param projectDir - Associated project reference path.
+ * @returns Ready-to-execute terminal CLI string.
  */
 export function getMonitorCommand(
   port?: string,
@@ -89,7 +106,10 @@ export function getMonitorCommand(
 }
 
 /**
- * Gets monitor command with custom filters
+ * Gets monitor command with custom filters.
+ * 
+ * @param options - Assorted filtering configuration options.
+ * @returns Generated CLI invocation text.
  */
 export function getMonitorCommandWithFilters(options: {
   port?: string;
@@ -131,7 +151,11 @@ export function getMonitorCommandWithFilters(options: {
 }
 
 /**
- * Provides instructions for using the raw monitor mode
+ * Provides instructions for using the raw monitor mode.
+ * 
+ * @param port - Specified raw port to watch.
+ * @param baud - UART rate synchronization value.
+ * @returns Structured instructional summary for the developer.
  */
 export function getRawMonitorInstructions(port: string, baud: number): MonitorResult {
   if (!validateSerialPort(port)) {

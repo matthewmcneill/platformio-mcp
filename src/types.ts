@@ -1,5 +1,16 @@
 /**
- * Type definitions and Zod schemas for PlatformIO MCP Server
+ * Global Type Definitions
+ * Type definitions and Zod schemas for PlatformIO MCP Server.
+ * 
+ * Provides:
+ * - CommandResult: Execution stdout/stderr schema.
+ * - BoardInfo: Detailed board specification parameters.
+ * - SerialDevice: Detected serial port schema.
+ * - ProjectConfig: Project initialization shape.
+ * - BuildResult: Build status structure.
+ * - UploadConfig: Upload execution parameters.
+ * - MonitorConfig: Serial monitor options.
+ * - LibraryInfo: PlatformIO registry library metadata.
  */
 
 import { z } from 'zod';

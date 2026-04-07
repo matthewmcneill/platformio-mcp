@@ -1,5 +1,14 @@
 /**
- * Device detection and listing tools
+ * Device Discovery Tools
+ * Device detection and listing tools.
+ * 
+ * Provides:
+ * - listDevices: Discovers connected serial adapters.
+ * - findDeviceByPort: Resolves device by path.
+ * - getFirstDevice: Resolves default device.
+ * - hasConnectedDevices: Checks for existing endpoints.
+ * - findDevicesByDescription: Queries devices by hardware description.
+ * - findDevicesByHardwareId: Queries devices by internal identifier.
  */
 
 import { platformioExecutor } from '../platformio.js';
@@ -8,7 +17,9 @@ import { DevicesArraySchema } from '../types.js';
 import { PlatformIOError } from '../utils/errors.js';
 
 /**
- * Lists all connected serial devices
+ * Lists all connected serial devices.
+ * 
+ * @returns Array object denoting active and accessible COM interfaces.
  */
 export async function listDevices(): Promise<SerialDevice[]> {
   try {
@@ -38,7 +49,10 @@ export async function listDevices(): Promise<SerialDevice[]> {
 }
 
 /**
- * Finds a device by port path
+ * Finds a device by port path.
+ * 
+ * @param port - Path or designation of the serial port to find.
+ * @returns Connected device descriptor or null if disconnected.
  */
 export async function findDeviceByPort(port: string): Promise<SerialDevice | null> {
   const devices = await listDevices();
@@ -46,7 +60,9 @@ export async function findDeviceByPort(port: string): Promise<SerialDevice | nul
 }
 
 /**
- * Gets the first available serial device (useful for auto-detection)
+ * Gets the first available serial device (useful for auto-detection).
+ * 
+ * @returns Initially indexed device entry or null if none exist.
  */
 export async function getFirstDevice(): Promise<SerialDevice | null> {
   const devices = await listDevices();
@@ -54,7 +70,9 @@ export async function getFirstDevice(): Promise<SerialDevice | null> {
 }
 
 /**
- * Checks if any devices are connected
+ * Checks if any devices are connected.
+ * 
+ * @returns True if at least one serial device was discovered.
  */
 export async function hasConnectedDevices(): Promise<boolean> {
   const devices = await listDevices();
@@ -62,7 +80,10 @@ export async function hasConnectedDevices(): Promise<boolean> {
 }
 
 /**
- * Lists devices filtered by description (useful for finding specific board types)
+ * Lists devices filtered by description (useful for finding specific board types).
+ * 
+ * @param searchTerm - Keyword criteria to filter equipment details.
+ * @returns Array collection of matched serial endpoints.
  */
 export async function findDevicesByDescription(searchTerm: string): Promise<SerialDevice[]> {
   const devices = await listDevices();
@@ -74,7 +95,10 @@ export async function findDevicesByDescription(searchTerm: string): Promise<Seri
 }
 
 /**
- * Lists devices filtered by hardware ID
+ * Lists devices filtered by hardware ID.
+ * 
+ * @param searchTerm - Identifier or string footprint present in HWID.
+ * @returns Filtered subsets of devices bound by hardware signatures.
  */
 export async function findDevicesByHardwareId(searchTerm: string): Promise<SerialDevice[]> {
   const devices = await listDevices();

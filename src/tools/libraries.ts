@@ -1,5 +1,14 @@
 /**
- * Library management tools
+ * Library Registry Tools
+ * Library management tools.
+ * 
+ * Provides:
+ * - searchLibraries: Queries PlatformIO global registry.
+ * - installLibrary: Resolves and installs dependency.
+ * - listInstalledLibraries: Locates local downloaded packages.
+ * - uninstallLibrary: Removes downloaded dependency.
+ * - updateLibraries: Polls registry for package updates.
+ * - getLibraryInfo: Resolves data for registry ID.
  */
 
 import { platformioExecutor } from '../platformio.js';
@@ -9,7 +18,11 @@ import { validateLibraryName, validateVersion, validateProjectPath } from '../ut
 import { LibraryError, PlatformIOError } from '../utils/errors.js';
 
 /**
- * Searches for libraries in the PlatformIO registry
+ * Searches for libraries in the PlatformIO registry.
+ * 
+ * @param query - The search query string for the registry.
+ * @param limit - Optional maximum number of returned results.
+ * @returns Array collection of available package metadata.
  */
 export async function searchLibraries(query: string, limit?: number): Promise<LibraryInfo[]> {
   if (!query || query.trim().length === 0) {
@@ -39,7 +52,11 @@ export async function searchLibraries(query: string, limit?: number): Promise<Li
 }
 
 /**
- * Installs a library (globally or to a specific project)
+ * Installs a library (globally or to a specific project).
+ * 
+ * @param libraryName - Target dependency registry package string.
+ * @param options - Version specification and project directory context.
+ * @returns Library install operation success status context.
  */
 export async function installLibrary(
   libraryName: string,
@@ -99,7 +116,10 @@ export async function installLibrary(
 }
 
 /**
- * Lists installed libraries (globally or for a specific project)
+ * Lists installed libraries (globally or for a specific project).
+ * 
+ * @param projectDir - Optional project workspace to retrieve local packages from.
+ * @returns Details on present library entities.
  */
 export async function listInstalledLibraries(projectDir?: string): Promise<LibraryInfo[]> {
   try {
@@ -134,7 +154,11 @@ export async function listInstalledLibraries(projectDir?: string): Promise<Libra
 }
 
 /**
- * Uninstalls a library (globally or from a specific project)
+ * Uninstalls a library (globally or from a specific project).
+ * 
+ * @param libraryName - Identified registry name to remove.
+ * @param projectDir - Optional directory workspace path specifying local target.
+ * @returns Success completion status string payload.
  */
 export async function uninstallLibrary(
   libraryName: string,
@@ -176,7 +200,10 @@ export async function uninstallLibrary(
 }
 
 /**
- * Updates installed libraries (globally or for a specific project)
+ * Updates installed libraries (globally or for a specific project).
+ * 
+ * @param projectDir - Associated project target space path.
+ * @returns Success operation completion payload string metadata.
  */
 export async function updateLibraries(projectDir?: string): Promise<{ success: boolean; message: string }> {
   try {
@@ -211,7 +238,10 @@ export async function updateLibraries(projectDir?: string): Promise<{ success: b
 }
 
 /**
- * Gets information about a specific library
+ * Gets information about a specific library.
+ * 
+ * @param libraryNameOrId - Recognized registry label referencing a library.
+ * @returns Deep introspection context about the provided library or null.
  */
 export async function getLibraryInfo(libraryNameOrId: string): Promise<LibraryInfo | null> {
   try {

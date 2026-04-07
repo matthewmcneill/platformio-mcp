@@ -1,5 +1,11 @@
 /**
- * Firmware upload tools
+ * Firmware Upload Tools
+ * Firmware upload operations and sequencing tools.
+ * 
+ * Provides:
+ * - uploadFirmware: Targets serial devices and drops compiled hex/bin.
+ * - uploadAndMonitor: Drops firmware and attaches realtime observer.
+ * - buildAndUpload: Compiles and dispatches binaries.
  */
 
 import { platformioExecutor } from '../platformio.js';
@@ -9,7 +15,12 @@ import { UploadError, PlatformIOError } from '../utils/errors.js';
 import { parseStderrErrors } from '../utils/errors.js';
 
 /**
- * Uploads firmware to a connected device
+ * Uploads firmware to a connected device.
+ * 
+ * @param projectDir - Path to the project root slated for upload.
+ * @param port - Optional override for destination serial connection.
+ * @param environment - Target PIO runtime context block.
+ * @returns Upload completion status and output streams.
  */
 export async function uploadFirmware(
   projectDir: string,
@@ -68,7 +79,12 @@ export async function uploadFirmware(
 }
 
 /**
- * Uploads firmware and starts serial monitor (upload + monitor)
+ * Uploads firmware and starts serial monitor (upload + monitor).
+ * 
+ * @param projectDir - Applicable codebase tree.
+ * @param port - Specific hardware port to flash and watch.
+ * @param environment - Bound environment parameters execution context.
+ * @returns Terminal logging outputs array sequence from upload.
  */
 export async function uploadAndMonitor(
   projectDir: string,
@@ -126,7 +142,12 @@ export async function uploadAndMonitor(
 }
 
 /**
- * Builds and uploads firmware in one step
+ * Builds and uploads firmware in one step.
+ * 
+ * @param projectDir - Full reference target codebase directory.
+ * @param port - Specific hardware routing destination.
+ * @param environment - Optional build settings context block string.
+ * @returns Compound build sequence operation payload object.
  */
 export async function buildAndUpload(
   projectDir: string,

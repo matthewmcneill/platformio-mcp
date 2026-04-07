@@ -1,5 +1,12 @@
 /**
- * Project build and compilation tools
+ * Build Execution Tools
+ * Project build and compilation tools.
+ * 
+ * Provides:
+ * - buildProject: Compiles firmware binaries.
+ * - cleanProject: Scrubs compilation artifacts.
+ * - buildTarget: Compiles specific PIO lifecycle targets.
+ * - listTargets: Discovers valid compilation targets.
  */
 
 import { platformioExecutor } from '../platformio.js';
@@ -9,7 +16,11 @@ import { BuildError, PlatformIOError } from '../utils/errors.js';
 import { parseStderrErrors } from '../utils/errors.js';
 
 /**
- * Builds a PlatformIO project
+ * Builds a PlatformIO project.
+ * 
+ * @param projectDir - The target location of the PIO project.
+ * @param environment - Optional specific platformio.ini environment target.
+ * @returns Resulting build status and output log payloads.
  */
 export async function buildProject(
   projectDir: string,
@@ -59,7 +70,10 @@ export async function buildProject(
 }
 
 /**
- * Cleans build artifacts from a project
+ * Cleans build artifacts from a project.
+ * 
+ * @param projectDir - Discard compilation output for this project workspace.
+ * @returns Indicates successful cleanup execution metadata.
  */
 export async function cleanProject(projectDir: string): Promise<CleanResult> {
   const validatedPath = validateProjectPath(projectDir);
@@ -95,7 +109,12 @@ export async function cleanProject(projectDir: string): Promise<CleanResult> {
 }
 
 /**
- * Builds project for a specific target (e.g., 'upload', 'monitor', 'test')
+ * Builds project for a specific target (e.g., 'upload', 'monitor', 'test').
+ * 
+ * @param projectDir - Project workspace to run the target against.
+ * @param target - Build operation target designation.
+ * @param environment - Associated subset configuration to use.
+ * @returns Completed build execution status outcome.
  */
 export async function buildTarget(
   projectDir: string,
@@ -144,7 +163,11 @@ export async function buildTarget(
 }
 
 /**
- * Gets list of available build targets for a project
+ * Gets list of available build targets for a project.
+ * 
+ * @param projectDir - Applicable initialized source map directory.
+ * @param environment - Particular platform configuration to read targets from.
+ * @returns Plain array strings of build execution routines.
  */
 export async function listTargets(projectDir: string, environment?: string): Promise<string[]> {
   const validatedPath = validateProjectPath(projectDir);

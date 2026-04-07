@@ -1,5 +1,11 @@
 /**
- * Project initialization and management tools
+ * Project Scaffolding Tools
+ * Project initialization and management tools.
+ * 
+ * Provides:
+ * - initProject: Scaffolds a standardized PlatformIO context.
+ * - isValidProject: Validates directory structural health.
+ * - getProjectConfig: Parses configuration syntax schema.
  */
 
 import { mkdir } from 'fs/promises';
@@ -15,7 +21,10 @@ import {
 import { ProjectInitError } from '../utils/errors.js';
 
 /**
- * Initializes a new PlatformIO project
+ * Initializes a new PlatformIO project.
+ * 
+ * @param config - The initialization scheme, requiring at least board and projectDir.
+ * @returns Status string denoting success and generated filesystem paths.
  */
 export async function initProject(config: {
   board: string;
@@ -91,7 +100,10 @@ export async function initProject(config: {
 }
 
 /**
- * Checks if a directory is a valid PlatformIO project
+ * Checks if a directory is a valid PlatformIO project.
+ * 
+ * @param projectDir - Evaluated project workspace folder path.
+ * @returns Resolves true if a platformio.ini file is discovered.
  */
 export async function isValidProject(projectDir: string): Promise<boolean> {
   try {
@@ -104,7 +116,10 @@ export async function isValidProject(projectDir: string): Promise<boolean> {
 }
 
 /**
- * Gets project configuration from platformio.ini
+ * Gets project configuration from platformio.ini.
+ * 
+ * @param projectDir - Validated platform path to retrieve configuration from.
+ * @returns Nested map tree of raw string config block keys and variables.
  */
 export async function getProjectConfig(projectDir: string): Promise<Record<string, unknown>> {
   const validatedPath = validateProjectPath(projectDir);

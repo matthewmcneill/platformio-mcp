@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * PlatformIO MCP Server
+ * PlatformIO MCP Server Entry Point
  * A board-agnostic MCP server for embedded development with PlatformIO
+ * 
+ * Provides:
+ * - Server: Defines and exposes all MCP tools for client interfacing.
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';

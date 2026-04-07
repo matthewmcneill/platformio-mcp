@@ -1,5 +1,15 @@
 /**
- * PlatformIO CLI wrapper and command execution
+ * PlatformIO CLI Executor
+ * Wraps the PlatformIO CLI commands and provides robust typed execution.
+ * 
+ * Provides:
+ * - execPioCommand: Executes a raw PlatformIO CLI command.
+ * - parsePioJsonOutput: Parses and validates command output via Zod.
+ * - checkPlatformIOInstalled: Checks if PIO is locally available.
+ * - getPlatformIOVersion: Retrieves PIO version.
+ * - PlatformIOExecutor: Class encapsulating PIO CLI operations.
+ * - platformioExecutor: Global instance of PlatformIOExecutor.
+ * - DEFAULT_TIMEOUT: Standard timeout configuration for PIO commands.
  */
 
 import { execFile } from 'child_process';
@@ -19,7 +29,11 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT = 300000; // 5 minutes
 
 /**
- * Executes a PlatformIO CLI command
+ * Executes a PlatformIO CLI command.
+ * 
+ * @param args - CLI arguments to pass to the PlatformIO binary.
+ * @param options - Execution configuration options (timeout, cwd).
+ * @returns Result containing standard outputs and exit code.
  */
 export async function execPioCommand(
   args: string[],
@@ -90,7 +104,11 @@ export async function execPioCommand(
 }
 
 /**
- * Parses JSON output from PlatformIO and validates with Zod schema
+ * Parses JSON output from PlatformIO and validates with Zod schema.
+ * 
+ * @param output - Raw JSON string from CLI stdout.
+ * @param schema - Zod schema to validate against for type safety.
+ * @returns The strongly typed validated object payload.
  */
 export function parsePioJsonOutput<T>(output: string, schema: z.ZodSchema<T>): T {
   if (!output || output.trim().length === 0) {
@@ -120,7 +138,9 @@ export function parsePioJsonOutput<T>(output: string, schema: z.ZodSchema<T>): T
 }
 
 /**
- * Checks if PlatformIO CLI is installed and accessible
+ * Checks if PlatformIO CLI is installed and accessible.
+ * 
+ * @returns True if PlatformIO is available in the environment path; false otherwise.
  */
 export async function checkPlatformIOInstalled(): Promise<boolean> {
   try {
@@ -135,7 +155,9 @@ export async function checkPlatformIOInstalled(): Promise<boolean> {
 }
 
 /**
- * Gets the PlatformIO version
+ * Gets the PlatformIO version.
+ * 
+ * @returns The semantic version string of the local PlatformIO installation.
  */
 export async function getPlatformIOVersion(): Promise<string> {
   try {
@@ -161,7 +183,12 @@ export class PlatformIOExecutor {
   constructor() {}
 
   /**
-   * Executes a PlatformIO command
+   * Executes a PlatformIO command.
+   * 
+   * @param command - The PIO subcommand string.
+   * @param args - Arguments array for the command.
+   * @param options - Execution directives for the child process.
+   * @returns Structured runtime output results.
    */
   async execute(command: string, args: string[], options?: { cwd?: string; timeout?: number }): Promise<CommandResult> {
     const fullArgs = [command, ...args];
@@ -169,21 +196,31 @@ export class PlatformIOExecutor {
   }
 
   /**
-   * Checks if PlatformIO is installed
+   * Checks if PlatformIO is installed.
+   * 
+   * @returns A boolean resolving true if PlatformIO is ready.
    */
   async checkInstallation(): Promise<boolean> {
     return checkPlatformIOInstalled();
   }
 
   /**
-   * Gets PlatformIO version
+   * Gets PlatformIO version.
+   * 
+   * @returns The resolved PIO version.
    */
   async getVersion(): Promise<string> {
     return getPlatformIOVersion();
   }
 
   /**
-   * Executes a command and parses JSON output
+   * Executes a command and parses JSON output.
+   * 
+   * @param command - Core PlatformIO subcommand logic.
+   * @param args - Configuration and CLI flag values.
+   * @param schema - Schema for JSON output validation.
+   * @param options - Operational execution directives.
+   * @returns Parsed and validated JSON node entity.
    */
   async executeWithJsonOutput<T>(
     command: string,
