@@ -16,12 +16,39 @@ import { PlatformIOError } from '../utils/errors.js';
 import { serialManager } from '../utils/serial-manager.js';
 import { getFirstDevice } from './devices.js';
 import { portalEvents } from '../api/events.js';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /** Directory for actively tracking background execution buffers */
-const LOG_DIR = path.join(process.cwd(), '.agents', 'logs');
+const LOG_DIR = path.join(__dirname, '..', '..', 'logs');
 
-/** Record dictionary locking currently operating serial port mappings */
-const activeDaemons: Record<string, { port: SerialPort, stream1: fs.WriteStream, stream2: fs.WriteStream }> = {};
+type DaemonContext = {
+  port: SerialPort | null;
+  baudRate: number;
+  stream1: fs.WriteStream;
+  stream2: fs.WriteStream;
+  intentionallyClosed: boolean;
+  reconnectTimer?: NodeJS.Timeout;
+  logFile: string;
+  autoReconnect: boolean;
+};
+const activeDaemons: Record<string, DaemonContext> = {};
+
+export function getSpoolerState() {
+  const ports = Object.keys(activeDaemons);
+  if (ports.length > 0) {
+    const daemon = activeDaemons[ports[0]];
+    return {
+      active: true,
+      port: ports[0],
+      logFile: daemon.logFile,
+      autoReconnect: daemon.autoReconnect
+    };
+  }
+  return { active: false, autoReconnect: true };
+}
 
 /**
  * Clears outdated serial traces beyond the rotation limit to prevent disk bloat.
@@ -51,16 +78,95 @@ function rotateLogs(maxHistory = 30) {
 export function stopSpoolingDaemon(port: string) {
   if (activeDaemons[port]) {
     const daemon = activeDaemons[port];
+    daemon.intentionallyClosed = true;
+    if (daemon.reconnectTimer) clearTimeout(daemon.reconnectTimer);
+
     daemon.stream1.end();
     daemon.stream2.end();
-    if (daemon.port.isOpen) {
-      daemon.port.close();
+    if (daemon.port && daemon.port.isOpen) {
+      try { daemon.port.close(); } catch(e) {}
     }
     delete activeDaemons[port];
     try {
       serialManager.unlockPort(port);
     } catch(e) {}
+    portalEvents.emitSpoolerState?.(getSpoolerState());
   }
+}
+
+function startReconnectPolling(targetPort: string) {
+  const daemon = activeDaemons[targetPort];
+  if (!daemon || daemon.intentionallyClosed || daemon.reconnectTimer) return;
+
+  const startTime = Date.now();
+
+  const attemptConnect = () => {
+    if (daemon.intentionallyClosed || !daemon.autoReconnect) return;
+
+    // Determine backoff logic: 500ms for first 30 seconds, 2000ms after
+    const elapsed = Date.now() - startTime;
+    const pollInterval = elapsed < 30000 ? 500 : 2000;
+
+    const serial = new SerialPort({ path: targetPort, baudRate: daemon.baudRate, autoOpen: false });
+    
+    serial.open((err) => {
+      if (err) {
+        // Failed to connect, queue next attempt
+        daemon.reconnectTimer = setTimeout(attemptConnect, pollInterval);
+      } else {
+        // Successfully reconnected
+        console.error(`[Spooler] Successfully restored physical interface to ${targetPort}`);
+        daemon.reconnectTimer = undefined;
+        daemon.port = serial;
+        attachSerialEvents(serial, targetPort);
+      }
+    });
+  };
+
+  daemon.reconnectTimer = setTimeout(attemptConnect, 500);
+}
+
+function attachSerialEvents(serial: SerialPort, targetPort: string) {
+  let buffer = '';
+
+  serial.on('data', (data: Buffer) => {
+    const daemon = activeDaemons[targetPort];
+    if (!daemon) return;
+    
+    buffer += data.toString('utf8');
+    const lines = buffer.split('\n');
+    
+    // The last chunk is always the remainder (incomplete line)
+    buffer = lines.pop() || '';
+
+    // Push each finalized line as an atomic event
+    lines.forEach(line => {
+      const text = line + '\n';
+      daemon.stream1.write(text);
+      daemon.stream2.write(text);
+      portalEvents.emitSerialLog(targetPort, line.replace(/\r$/, '')); // Stream clean line to UI
+    });
+  });
+
+  const handleDisconnect = (err?: Error) => {
+    const daemon = activeDaemons[targetPort];
+    if (!daemon || daemon.intentionallyClosed) return;
+
+    if (err) {
+      console.error(`[Spooler] Unexpected runtime error on ${targetPort}: ${err.message}`);
+    } else {
+      console.error(`[Spooler] Interface ${targetPort} closed natively. Spooler auto-recovering...`);
+    }
+
+    if (daemon.port?.isOpen) {
+        try { daemon.port.close(); } catch(e) {}
+    }
+    daemon.port = null;
+    startReconnectPolling(targetPort);
+  };
+
+  serial.on('error', (err: any) => handleDisconnect(err));
+  serial.on('close', () => handleDisconnect());
 }
 
 /**
@@ -71,7 +177,7 @@ export function stopSpoolingDaemon(port: string) {
  * @param baud - UART synchronization speed.
  * @returns Status of initial creation and filepath targeting.
  */
-export async function startSpoolingDaemon(port?: string, baud: number = 115200) {
+export async function startSpoolingDaemon(port?: string, baud: number = 115200, autoReconnect: boolean = true) {
   let activePort = port;
   if (!activePort) {
     const defaultDevice = await getFirstDevice();
@@ -101,21 +207,24 @@ export async function startSpoolingDaemon(port?: string, baud: number = 115200) 
   const stream2 = fs.createWriteStream(latestLog, { flags: 'w' }); // Wipe and write new trace
   
   serialManager.lockPort(activePort);
+  
+  // Track daemon context before instantiating generic port bounds
+  activeDaemons[activePort] = { 
+    port: null, 
+    baudRate: baud,
+    stream1, 
+    stream2,
+    intentionallyClosed: false,
+    logFile,
+    autoReconnect
+  };
+
   const serial = new SerialPort({ path: activePort, baudRate: baud });
+  activeDaemons[activePort].port = serial;
 
-  activeDaemons[activePort] = { port: serial, stream1, stream2 };
+  attachSerialEvents(serial, activePort);
 
-  serial.on('data', (data: Buffer) => {
-    const text = data.toString('utf8');
-    stream1.write(text);
-    stream2.write(text);
-    portalEvents.emitSerialLog(activePort as string, text); // Stream directly to UI!
-  });
-
-  serial.on('error', (err: any) => {
-    console.error(`[Spooler] Error on ${activePort}: ${err.message}`);
-    stopSpoolingDaemon(activePort as string);
-  });
+  portalEvents.emitSpoolerState?.(getSpoolerState());
 
   return { success: true, port: activePort, logFile };
 }

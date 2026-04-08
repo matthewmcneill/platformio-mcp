@@ -60,6 +60,13 @@ class PortalEventEmitter extends EventEmitter {
       status
     });
   }
+
+  /**
+   * Emit spooler connection and config properties
+   */
+  emitSpoolerState(state: { active: boolean, port?: string, logFile?: string, autoReconnect: boolean }) {
+    this.emit('spooler_state', state);
+  }
 }
 
 

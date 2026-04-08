@@ -23,7 +23,7 @@ import {
   BuildProjectParamsSchema,
   CleanProjectParamsSchema,
   UploadFirmwareParamsSchema,
-  StartMonitorParamsSchema,
+
   SearchLibrariesParamsSchema,
   InstallLibraryParamsSchema,
   ListInstalledLibrariesParamsSchema,
@@ -266,7 +266,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 
 // Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+  const { name } = request.params;
+  const args: any = request.params.arguments || {};
   try {
     portalEvents.emitActivity(name, args || {}, true);
 

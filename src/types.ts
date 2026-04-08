@@ -94,7 +94,7 @@ export const ProjectConfigSchema = z.object({
   board: z.string().min(1, 'Board ID is required'),
   framework: z.string().optional(),
   projectDir: z.string().optional(),
-  platformOptions: z.record(z.string()).optional(),
+  platformOptions: z.record(z.string(), z.string()).optional(),
 });
 
 export interface ProjectInitResult {
@@ -288,7 +288,7 @@ export const InitProjectParamsSchema = z.object({
   board: z.string().min(1).describe('Board ID for the project'),
   framework: z.string().optional().describe('Framework to use (e.g., arduino, espidf)'),
   projectDir: z.string().describe('Directory path where the project should be created'),
-  platformOptions: z.record(z.string()).optional().describe('Additional platform-specific options'),
+  platformOptions: z.record(z.string(), z.string()).optional().describe('Additional platform-specific options'),
 });
 
 // Build project parameters

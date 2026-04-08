@@ -12,6 +12,9 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { portalEvents } from './events.js';
+import { getSpoolerState, startSpoolingDaemon, stopSpoolingDaemon } from '../tools/monitor.js';
+import { listDevices } from '../tools/devices.js';
+import { exec } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +30,32 @@ export function startPortalServer(defaultPort = 8080) {
   
   // Configure CORS for local UI dev mode
   app.use(cors({ origin: '*' }));
+  app.use(express.json());
+
+  app.get('/api/devices', async (_req, res) => {
+    try {
+      const devices = await listDevices();
+      res.json(devices);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/spooler/start', async (req, res) => {
+    try {
+      const { port, autoReconnect } = req.body;
+      const result = await startSpoolingDaemon(port, 115200, autoReconnect !== false);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post('/api/spooler/stop', (_req, res) => {
+    const state = getSpoolerState();
+    if (state.port) stopSpoolingDaemon(state.port);
+    res.json({ success: true });
+  });
   
   const io = new Server(httpServer, {
     cors: {
@@ -44,6 +73,7 @@ export function startPortalServer(defaultPort = 8080) {
     
     // Provide initial status state
     socket.emit('server_status', { timestamp: Date.now(), status: 'online' });
+    socket.emit('spooler_state', getSpoolerState());
   });
 
   // Wire up event bus to websocket broadcasts
@@ -51,6 +81,7 @@ export function startPortalServer(defaultPort = 8080) {
   portalEvents.on('build_log', (data) => io.emit('build_log', data));
   portalEvents.on('serial_log', (data) => io.emit('serial_log', data));
   portalEvents.on('server_status', (data) => io.emit('server_status', data));
+  portalEvents.on('spooler_state', (data) => io.emit('spooler_state', data));
 
   const port = process.env.PORTAL_PORT ? parseInt(process.env.PORTAL_PORT) : defaultPort;
 
@@ -58,6 +89,8 @@ export function startPortalServer(defaultPort = 8080) {
     console.error(`\n======================================================`);
     console.error(`🚀 MCP Server Web Portal running at: http://localhost:${port}`);
     console.error(`======================================================\n`);
+    
+    exec(`open http://localhost:${port}`, () => {});
   });
 
   return { app, httpServer, io };

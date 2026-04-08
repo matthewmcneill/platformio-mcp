@@ -123,7 +123,7 @@ export function parsePioJsonOutput<T>(output: string, schema: z.ZodSchema<T>): T
       throw new PlatformIOError(
         `Failed to parse PlatformIO output: ${error.message}`,
         'PARSE_ERROR',
-        { zodError: error.errors, output: output.substring(0, 500) }
+        { zodError: error.issues, output: output.substring(0, 500) }
       );
     }
     if (error instanceof SyntaxError) {

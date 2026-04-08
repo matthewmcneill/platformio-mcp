@@ -68,13 +68,22 @@ export async function findDeviceByPort(port: string): Promise<SerialDevice | nul
 }
 
 /**
- * Gets the first available serial device (useful for auto-detection).
+ * Gets the first available valid serial device (useful for auto-detection).
+ * Prioritizes actual physical USB modems over noisy Mac Bluetooth stacks.
  * 
- * @returns Initially indexed device entry or null if none exist.
+ * @returns Initially indexed verified device entry or null if none exist.
  */
 export async function getFirstDevice(): Promise<SerialDevice | null> {
   const devices = await listDevices();
-  return devices.length > 0 ? devices[0] : null;
+  if (devices.length === 0) return null;
+  
+  // Exclude native and secondary Bluetooth bridging drivers
+  const validDevices = devices.filter(d => {
+    const p = d.port.toLowerCase();
+    return !p.includes('bluetooth') && !p.includes('blth') && !p.includes('bose');
+  });
+  
+  return validDevices.length > 0 ? validDevices[0] : devices[0];
 }
 
 /**

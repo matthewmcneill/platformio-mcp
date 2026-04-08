@@ -45,7 +45,7 @@ pio --version
 ### Step 1: Navigate to Server Directory
 
 ```bash
-cd /Users/tonyloehr/Desktop/Workspace/platformio-mcp
+cd /path/to/platformio-mcp
 ```
 
 ### Step 2: Install Dependencies
@@ -124,7 +124,7 @@ To use this server with Cline, add it to your MCP settings:
   "mcpServers": {
     "platformio": {
       "command": "node",
-      "args": ["/Users/tonyloehr/Desktop/Workspace/platformio-mcp/build/index.js"],
+      "args": ["/path/to/platformio-mcp/build/index.js"],
       "env": {}
     }
   }
@@ -138,7 +138,7 @@ To use this server with Cline, add it to your MCP settings:
     "platformio": {
       "command": "npm",
       "args": ["run", "dev"],
-      "cwd": "/Users/tonyloehr/Desktop/Workspace/platformio-mcp",
+      "cwd": "/path/to/platformio-mcp",
       "env": {}
     }
   }
@@ -147,7 +147,22 @@ To use this server with Cline, add it to your MCP settings:
 
 ## Configuration for Antigravity
 
-If you are using Antigravity, integration is simple. Ensure the workspace is active, and the MCP tools will be naturally available when running `npm run dev` from the repository root. Antigravity requires no heavy JSON configuration!
+Antigravity requires you to explicitly add the MCP server configuration into its global settings file. This is typically found at `~/.gemini/antigravity/mcp_config.json` on macOS/Linux.
+
+Add the following to your `mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "platformio": {
+      "command": "node",
+      "args": ["/absolute/path/to/platformio-mcp/build/index.js"],
+      "env": {}
+    }
+  }
+}
+```
+*(Make sure to replace `/absolute/path/to/platformio-mcp` with the actual path where you installed the server)*
 
 
 ## Troubleshooting
@@ -203,7 +218,7 @@ Run these commands to verify everything works:
 
 ```bash
 # 1. Check directory structure
-ls -la /Users/tonyloehr/Desktop/Workspace/platformio-mcp
+ls -la /path/to/platformio-mcp
 
 # 2. Verify dependencies
 npm list --depth=0

@@ -30,11 +30,19 @@ export type LogEvent = {
   data?: string;
 };
 
+export type SpoolerState = {
+  active: boolean;
+  port?: string;
+  logFile?: string;
+  autoReconnect: boolean;
+};
+
 function App() {
   const [status, setStatus] = useState<'online' | 'offline'>('offline');
   const [activities, setActivities] = useState<AgentEvent[]>([]);
   const [buildLogs, setBuildLogs] = useState<LogEvent[]>([]);
   const [serialLogs, setSerialLogs] = useState<LogEvent[]>([]);
+  const [spoolerState, setSpoolerState] = useState<SpoolerState>({ active: false, autoReconnect: true });
 
   useEffect(() => {
     socket.on('server_status', (data) => {
@@ -62,11 +70,16 @@ function App() {
       });
     });
 
+    socket.on('spooler_state', (data: SpoolerState) => {
+      setSpoolerState(data);
+    });
+
     return () => {
       socket.off('server_status');
       socket.off('agent_activity');
       socket.off('build_log');
       socket.off('serial_log');
+      socket.off('spooler_state');
     };
   }, []);
 
@@ -89,7 +102,7 @@ function App() {
         </div>
         <div className="grid-column right-column">
           <BuildTerminal logs={buildLogs} />
-          <SerialLog logs={serialLogs} />
+          <SerialLog logs={serialLogs} spoolerState={spoolerState} />
         </div>
       </main>
     </div>

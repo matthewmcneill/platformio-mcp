@@ -14,17 +14,26 @@ interface Props {
 
 const BuildTerminal: React.FC<Props> = ({ logs }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [isAutoScrollFastened, setIsAutoScrollFastened] = React.useState(true);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs]);
+    if (isAutoScrollFastened && bottomRef.current) {
+      bottomRef.current.scrollIntoView();
+    }
+  }, [logs, isAutoScrollFastened]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const atBottom = scrollHeight - scrollTop - clientHeight < 150;
+    setIsAutoScrollFastened(atBottom);
+  };
 
   return (
     <div className="panel terminal-panel">
       <div className="panel-header dark">
         <h2>Compiler Terminal</h2>
       </div>
-      <div className="panel-content terminal-content scrollable">
+      <div className="panel-content terminal-content scrollable" onScroll={handleScroll}>
         {logs.length === 0 ? (
           <div className="empty-state">No build output yet...</div>
         ) : (

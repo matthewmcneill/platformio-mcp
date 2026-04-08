@@ -22,7 +22,7 @@ import { BoardNotFoundError, PlatformIOError } from '../utils/errors.js';
  * PlatformIO returns boards as an object with platform keys containing arrays of boards
  * Example: { "atmelavr": [{...}], "espressif32": [{...}] }
  */
-const PioBoardsOutputSchema = z.record(z.array(BoardInfoSchema));
+const PioBoardsOutputSchema = z.record(z.string(), z.array(BoardInfoSchema));
 
 /**
  * Lists all available PlatformIO boards with optional filtering.
