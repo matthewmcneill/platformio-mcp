@@ -19,10 +19,9 @@ import { validateBoardId } from '../utils/validation.js';
 import { BoardNotFoundError, PlatformIOError } from '../utils/errors.js';
 
 /**
- * PlatformIO returns boards as an object with platform keys containing arrays of boards
- * Example: { "atmelavr": [{...}], "espressif32": [{...}] }
+ * PlatformIO returns boards as a flat array of board objects.
  */
-const PioBoardsOutputSchema = z.record(z.string(), z.array(BoardInfoSchema));
+const PioBoardsOutputSchema = z.array(BoardInfoSchema);
 
 /**
  * Lists all available PlatformIO boards with optional filtering.
@@ -46,11 +45,7 @@ export async function listBoards(filter?: string): Promise<BoardInfo[]> {
       { timeout: 30000 }
     );
 
-    // Flatten the platform-grouped boards into a single array
-    const allBoards: BoardInfo[] = [];
-    for (const platformBoards of Object.values(result)) {
-      allBoards.push(...platformBoards);
-    }
+    const allBoards: BoardInfo[] = result;
 
     // Apply filter if provided (PlatformIO does basic filtering, but we can enhance it)
     if (filter && filter.trim().length > 0) {
@@ -95,12 +90,10 @@ export async function getBoardInfo(boardId: string): Promise<BoardInfo> {
       { timeout: 30000 }
     );
 
-    // Flatten and find exact match
-    for (const platformBoards of Object.values(result)) {
-      const board = platformBoards.find(b => b.id === boardId);
-      if (board) {
-        return board;
-      }
+    // Find exact match
+    const board = result.find(b => b.id === boardId);
+    if (board) {
+      return board;
     }
 
     // If we get here, the board wasn't found
@@ -131,7 +124,16 @@ export async function listBoardsByPlatform(): Promise<Record<string, BoardInfo[]
       { timeout: 30000 }
     );
 
-    return result;
+    // Group the flat array into a Record by platform
+    const grouped: Record<string, BoardInfo[]> = {};
+    for (const board of result) {
+      if (!grouped[board.platform]) {
+        grouped[board.platform] = [];
+      }
+      grouped[board.platform].push(board);
+    }
+    
+    return grouped;
   } catch (error) {
     throw new PlatformIOError(
       `Failed to list boards by platform: ${error}`,
