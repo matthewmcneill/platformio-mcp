@@ -112,58 +112,77 @@ pio boards | head -10
 
 **Expected:** List of available boards.
 
-## Configuration for Cline
+## Agentic Project Deployment Strategies
 
-To use this server with Cline, add it to your MCP settings:
+If you are developing an embedded C/C++ repository and want to bundle `.agents/workflows` that rely on this MCP server, you have three primary deployment architectures to ensure the tools are available to any Developer or AI Agent checking out your codebase:
 
-**Location:** Cline MCP Settings
+### 1. The `npx` Auto-Execution Approach (Cleanest)
+If this package is published to NPM (or your private registry), you do not need to install anything locally. You can simply instruct users to drop this into their global `mcp_config.json`:
 
-**Configuration Example:**
+```json
+{
+  "mcpServers": {
+    "platformio": {
+      "command": "npx",
+      "args": ["-y", "platformio-mcp-server"]
+    }
+  }
+}
+```
+*Note: The `-y` flag forces Node to automatically download, execute, and bridge the MCP background server transparently on-demand without any manual `npm install` steps.*
+
+### 2. The Native `tools/` Submodule (Embedded Standard)
+If you wish to contain the dependency exclusively within your project without relying on global registries:
+
+1. Add this repository as a submodule: `git submodule add <url> tools/platformio-mcp`
+2. Create an initialization workflow (`.agents/workflows/setup.md`) that instructs the Agent:
+   *"Navigate to `tools/platformio-mcp`, run `npm install`, and `npm run build`."*
+3. Update the `mcp_config.json` manually or via an installer script mapping the path absolutely:
+
 ```json
 {
   "mcpServers": {
     "platformio": {
       "command": "node",
-      "args": ["/path/to/platformio-mcp/build/index.js"],
-      "env": {}
+      "args": ["/absolute/path/to/your-repo/tools/platformio-mcp/build/index.js"]
     }
   }
 }
 ```
 
-**Alternative using npm:**
-```json
-{
-  "mcpServers": {
-    "platformio": {
-      "command": "npm",
-      "args": ["run", "dev"],
-      "cwd": "/path/to/platformio-mcp",
-      "env": {}
-    }
-  }
-}
+### 3. The `devDependencies` Integration
+If your embedded repository incorporates a `package.json` (e.g. for React captive portals):
+```bash
+npm install -D github:matthewmcneill/platformio-mcp
 ```
+This isolates the utility within your `node_modules/.bin/`, allowing seamless execution securely boxed to the repository context.
 
-## Configuration for Antigravity
+---
+
+## Configuration for Antigravity & Global IDEs
 
 Antigravity requires you to explicitly add the MCP server configuration into its global settings file. This is typically found at `~/.gemini/antigravity/mcp_config.json` on macOS/Linux.
 
-Add the following to your `mcp_config.json`:
+### Automatic Installer Script
+We provide a helper Node.js script to safely map your local clone directly into Antigravity's global footprint. It will intelligently resolve your node binary path and format the JSON.
+```bash
+# From the root of the platformio-mcp repository:
+node scripts/install-antigravity.js
+```
+
+### Manual Configuration
+If manually adding, ensure you map the absolute path correctly:
 
 ```json
 {
   "mcpServers": {
     "platformio": {
       "command": "node",
-      "args": ["/absolute/path/to/platformio-mcp/build/index.js"],
-      "env": {}
+      "args": ["/absolute/path/to/platformio-mcp/build/index.js"]
     }
   }
 }
 ```
-*(Make sure to replace `/absolute/path/to/platformio-mcp` with the actual path where you installed the server)*
-
 
 ## Troubleshooting
 
