@@ -43,6 +43,7 @@ function App() {
   const [buildLogs, setBuildLogs] = useState<LogEvent[]>([]);
   const [serialLogs, setSerialLogs] = useState<LogEvent[]>([]);
   const [spoolerState, setSpoolerState] = useState<SpoolerState>({ active: false, autoReconnect: true });
+  const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null);
 
   useEffect(() => {
     socket.on('server_status', (data) => {
@@ -74,12 +75,17 @@ function App() {
       setSpoolerState(data);
     });
 
+    socket.on('workspace_state', (data: { projectDir: string }) => {
+      setActiveWorkspace(data.projectDir);
+    });
+
     return () => {
       socket.off('server_status');
       socket.off('agent_activity');
       socket.off('build_log');
       socket.off('serial_log');
       socket.off('spooler_state');
+      socket.off('workspace_state');
     };
   }, []);
 
@@ -102,7 +108,7 @@ function App() {
         </div>
         <div className="grid-column right-column">
           <BuildTerminal logs={buildLogs} />
-          <SerialLog logs={serialLogs} spoolerState={spoolerState} />
+          <SerialLog logs={serialLogs} spoolerState={spoolerState} activeWorkspace={activeWorkspace} />
         </div>
       </main>
     </div>

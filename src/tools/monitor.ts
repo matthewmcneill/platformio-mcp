@@ -21,8 +21,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Directory for actively tracking background execution buffers */
-const LOG_DIR = path.join(__dirname, '..', '..', 'logs');
+const DEFAULT_LOG_DIR = path.join(__dirname, '..', '..', 'logs');
 
 type DaemonContext = {
   port: SerialPort | null;
@@ -55,11 +54,11 @@ export function getSpoolerState() {
  * 
  * @param maxHistory - Maximum total bounded files to retain.
  */
-function rotateLogs(maxHistory = 30) {
-  if (!fs.existsSync(LOG_DIR)) return;
-  const files = fs.readdirSync(LOG_DIR)
+function rotateLogs(targetDir: string, maxHistory = 30) {
+  if (!fs.existsSync(targetDir)) return;
+  const files = fs.readdirSync(targetDir)
     .filter(f => f.startsWith('device-monitor-') && f.endsWith('.log'))
-    .map(f => ({ name: f, path: path.join(LOG_DIR, f), ctime: fs.statSync(path.join(LOG_DIR, f)).ctime.getTime() }))
+    .map(f => ({ name: f, path: path.join(targetDir, f), ctime: fs.statSync(path.join(targetDir, f)).ctime.getTime() }))
     .sort((a, b) => b.ctime - a.ctime); // Newest first
 
   if (files.length > maxHistory) {
@@ -177,7 +176,7 @@ function attachSerialEvents(serial: SerialPort, targetPort: string) {
  * @param baud - UART synchronization speed.
  * @returns Status of initial creation and filepath targeting.
  */
-export async function startSpoolingDaemon(port?: string, baud: number = 115200, autoReconnect: boolean = true) {
+export async function startSpoolingDaemon(port?: string, baud: number = 115200, autoReconnect: boolean = true, projectDir?: string) {
   let activePort = port;
   if (!activePort) {
     const defaultDevice = await getFirstDevice();
@@ -193,15 +192,17 @@ export async function startSpoolingDaemon(port?: string, baud: number = 115200, 
 
   if (serialManager.isLocked(activePort)) throw new PlatformIOError(`Port is currently locked: ${activePort}`, 'PORT_BUSY');
   
-  if (!fs.existsSync(LOG_DIR)) {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+  const targetDir = projectDir ? path.join(projectDir, 'logs') : DEFAULT_LOG_DIR;
+
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
   }
   
-  rotateLogs(30);
+  rotateLogs(targetDir, 30);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const logFile = path.join(LOG_DIR, `device-monitor-${timestamp}.log`);
-  const latestLog = path.join(LOG_DIR, 'latest-monitor.log');
+  const logFile = path.join(targetDir, `device-monitor-${timestamp}.log`);
+  const latestLog = path.join(targetDir, 'latest-monitor.log');
   
   const stream1 = fs.createWriteStream(logFile, { flags: 'a' });
   const stream2 = fs.createWriteStream(latestLog, { flags: 'w' }); // Wipe and write new trace
@@ -236,10 +237,11 @@ export async function startSpoolingDaemon(port?: string, baud: number = 115200, 
  * @param searchPattern - Regex evaluation sequence to prune arbitrary output.
  * @returns Serialized matches of the latest buffer output.
  */
-export async function queryLogs(lines: number = 100, searchPattern?: string) {
-  const latestLog = path.join(LOG_DIR, 'latest-monitor.log');
+export async function queryLogs(lines: number = 100, searchPattern?: string, projectDir?: string) {
+  const targetDir = projectDir ? path.join(projectDir, 'logs') : DEFAULT_LOG_DIR;
+  const latestLog = path.join(targetDir, 'latest-monitor.log');
   if (!fs.existsSync(latestLog)) {
-    return { success: false, content: 'No active or recent logs found.' };
+    return { success: false, content: `No active or recent logs found in ${targetDir}.` };
   }
 
   const content = fs.readFileSync(latestLog, 'utf8');

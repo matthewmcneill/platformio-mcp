@@ -11,9 +11,10 @@ import { LogEvent, SpoolerState } from '../app.js';
 interface Props {
   logs: LogEvent[];
   spoolerState: SpoolerState;
+  activeWorkspace?: string | null;
 }
 
-const SerialLog: React.FC<Props> = ({ logs, spoolerState }) => {
+const SerialLog: React.FC<Props> = ({ logs, spoolerState, activeWorkspace }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [localAutoReconnect, setLocalAutoReconnect] = useState(spoolerState.autoReconnect);
   const [availablePorts, setAvailablePorts] = useState<{ port: string; description: string }[]>([]);
@@ -66,7 +67,11 @@ const SerialLog: React.FC<Props> = ({ logs, spoolerState }) => {
       await fetch('/api/spooler/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ port: selectedPort || undefined, autoReconnect: checkedState ?? localAutoReconnect })
+        body: JSON.stringify({ 
+          port: selectedPort || undefined, 
+          autoReconnect: checkedState ?? localAutoReconnect,
+          projectDir: activeWorkspace ?? undefined
+        })
       });
     } catch (e) {
       console.error('Failed to start spooling', e);
@@ -96,6 +101,11 @@ const SerialLog: React.FC<Props> = ({ logs, spoolerState }) => {
           {spoolerState.logFile && spoolerState.active && (
              <span style={{ fontFamily: 'monospace', opacity: 0.7 }} title={spoolerState.logFile}>
                Output: {spoolerState.logFile.split('/').pop()}
+             </span>
+          )}
+          {activeWorkspace && !spoolerState.active && (
+             <span style={{ fontFamily: 'monospace', opacity: 0.5, maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={activeWorkspace}>
+               Target: {activeWorkspace.split('/').pop()}
              </span>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>

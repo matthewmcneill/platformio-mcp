@@ -67,6 +67,23 @@ class PortalEventEmitter extends EventEmitter {
   emitSpoolerState(state: { active: boolean, port?: string, logFile?: string, autoReconnect: boolean }) {
     this.emit('spooler_state', state);
   }
+
+  private lastKnownProjectDir?: string;
+
+  /**
+   * Caches and emits the last known dynamically targeted workspace directory.
+   */
+  emitWorkspaceState(projectDir: string) {
+    this.lastKnownProjectDir = projectDir;
+    this.emit('workspace_state', {
+      timestamp: Date.now(),
+      projectDir
+    });
+  }
+
+  getLastKnownWorkspace() {
+    return this.lastKnownProjectDir;
+  }
 }
 
 

@@ -43,8 +43,8 @@ export function startPortalServer(defaultPort = 8080) {
 
   app.post('/api/spooler/start', async (req, res) => {
     try {
-      const { port, autoReconnect } = req.body;
-      const result = await startSpoolingDaemon(port, 115200, autoReconnect !== false);
+      const { port, autoReconnect, projectDir } = req.body;
+      const result = await startSpoolingDaemon(port, 115200, autoReconnect !== false, projectDir);
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ success: false, error: e.message });
@@ -74,6 +74,12 @@ export function startPortalServer(defaultPort = 8080) {
     // Provide initial status state
     socket.emit('server_status', { timestamp: Date.now(), status: 'online' });
     socket.emit('spooler_state', getSpoolerState());
+    
+    // Inject active workspace layer naturally on UI boot
+    const activeWorkspace = portalEvents.getLastKnownWorkspace();
+    if (activeWorkspace) {
+      socket.emit('workspace_state', { timestamp: Date.now(), projectDir: activeWorkspace });
+    }
   });
 
   // Wire up event bus to websocket broadcasts
@@ -82,6 +88,7 @@ export function startPortalServer(defaultPort = 8080) {
   portalEvents.on('serial_log', (data) => io.emit('serial_log', data));
   portalEvents.on('server_status', (data) => io.emit('server_status', data));
   portalEvents.on('spooler_state', (data) => io.emit('spooler_state', data));
+  portalEvents.on('workspace_state', (data) => io.emit('workspace_state', data));
 
   const port = process.env.PORTAL_PORT ? parseInt(process.env.PORTAL_PORT) : defaultPort;
 

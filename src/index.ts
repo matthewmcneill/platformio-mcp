@@ -181,7 +181,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           type: 'object',
           properties: {
             lines: { type: 'number', description: 'Fetch this many tail lines from the end of the log (default: 100)' },
-            searchPattern: { type: 'string', description: 'Optional Regex pattern to filter the spool for specific keywords.' }
+            searchPattern: { type: 'string', description: 'Optional Regex pattern to filter the spool for specific keywords.' },
+            projectDir: { type: 'string', description: 'Target project checkout to query local .log cache instead of global cache.' }
           }
         }
       },
@@ -192,7 +193,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           type: 'object',
           properties: {
             port: { type: 'string', description: 'Optional COM path. Falls back to default.' },
-            baud: { type: 'number', description: 'Optional baud rate.' }
+            baud: { type: 'number', description: 'Optional baud rate.' },
+            projectDir: { type: 'string', description: 'Target project boundary to deposit raw hardware logs into instead of the global server cache.' }
           }
         }
       },
@@ -270,6 +272,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const args: any = request.params.arguments || {};
   try {
     portalEvents.emitActivity(name, args || {}, true);
+    
+    // Automatically intercept and broadcast workspace shifts
+    if (args.projectDir) {
+      portalEvents.emitWorkspaceState(args.projectDir);
+    }
 
     switch (name) {
       case 'list_boards': {
@@ -363,14 +370,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'query_logs': {
-        const result = await queryLogs(args.lines, args.searchPattern);
+        const result = await queryLogs(args.lines, args.searchPattern, args.projectDir);
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
         };
       }
 
       case 'start_spooling': {
-        const result = await startSpoolingDaemon(args.port, args.baud);
+        const result = await startSpoolingDaemon(args.port, args.baud, true, args.projectDir);
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
         };
