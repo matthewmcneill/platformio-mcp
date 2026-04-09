@@ -100,5 +100,14 @@ export function startPortalServer(defaultPort = 8080) {
     exec(`open http://localhost:${port}`, () => {});
   });
 
+  // Ensure port 8080 is relinquished cleanly if the parent IDE terminates the MCP server
+  const cleanup = () => {
+    httpServer.close();
+    process.exit(0);
+  };
+  
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
+
   return { app, httpServer, io };
 }

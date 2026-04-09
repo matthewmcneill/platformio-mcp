@@ -143,8 +143,11 @@ If you wish to contain the dependency exclusively within your project without re
 {
   "mcpServers": {
     "platformio": {
-      "command": "node",
-      "args": ["/absolute/path/to/your-repo/tools/platformio-mcp/build/index.js"]
+      "command": "zsh",
+      "args": [
+        "-lic",
+        "node /absolute/path/to/your-repo/tools/platformio-mcp/build/index.js"
+      ]
     }
   }
 }
@@ -177,8 +180,11 @@ If manually adding, ensure you map the absolute path correctly:
 {
   "mcpServers": {
     "platformio": {
-      "command": "node",
-      "args": ["/absolute/path/to/platformio-mcp/build/index.js"]
+      "command": "zsh",
+      "args": [
+        "-lic",
+        "node /absolute/path/to/platformio-mcp/build/index.js"
+      ]
     }
   }
 }

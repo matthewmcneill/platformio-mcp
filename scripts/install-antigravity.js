@@ -53,10 +53,14 @@ if (!config.mcpServers) {
   config.mcpServers = {};
 }
 
-// Formulate the executable boundary dynamically resolving through inherited PATHs
+// Formulate the executable boundary using an Interactive Shell Wrapper `zsh -lic`
+// This magically inherits ~/.zshrc dynamically, granting sterile GUIs native access to NVM & PIO.
 config.mcpServers.platformio = {
-  command: "node",
-  args: [binaryPath]
+  command: "zsh",
+  args: [
+    "-lic",
+    `node ${binaryPath}`
+  ]
 };
 
 // Push payload cleanly back onto disk
@@ -65,5 +69,5 @@ fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 console.log('');
 console.log(`✅ Successfully tethered the Antigravity Agent to:`);
 console.log(`   Binary Tracker : ${binaryPath}`);
-console.log(`   Node Toolchain : dynamically resolving via $PATH`);
+console.log(`   Execution Path : zsh -lic "node ..."  (Dynamic Profile Inheritance)`);
 console.log('----------------------------------------------------');
