@@ -44,6 +44,9 @@ export function startPortalServer(defaultPort = 8080) {
 
   app.post('/api/spooler/start', async (req, res) => {
     try {
+      if (hardwareLockManager.getLockStatus().isLocked) {
+        throw new Error('Hardware queue is currently locked by an active agent operation.');
+      }
       const { port, autoReconnect, projectDir } = req.body;
       const result = await startSpoolingDaemon(port, 115200, autoReconnect !== false, projectDir);
       res.json(result);

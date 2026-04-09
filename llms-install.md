@@ -162,6 +162,26 @@ This isolates the utility within your `node_modules/.bin/`, allowing seamless ex
 
 ---
 
+## Configuration for Cline
+
+Cline requires you to explicitly add the MCP server configuration into its settings file. This is typically found via the VSCode Command Palette (`Cmd+Shift+P` -> `Cline: MCP Servers`).
+
+### Manual Configuration
+Ensure you map the absolute path correctly for your workspace:
+
+```json
+{
+  "mcpServers": {
+    "platformio": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/platformio-mcp/build/index.js"
+      ]
+    }
+  }
+}
+```
+
 ## Configuration for Antigravity & Global IDEs
 
 Antigravity requires you to explicitly add the MCP server configuration into its global settings file. This is typically found at `~/.gemini/antigravity/mcp_config.json` on macOS/Linux.
@@ -189,6 +209,16 @@ If manually adding, ensure you map the absolute path correctly:
   }
 }
 ```
+
+## Configuration for Claude Code
+
+Claude Code supports adding MCP servers directly via its CLI. You can add the PlatformIO MCP server by running:
+
+```bash
+claude mcp add platformio -- node /path/to/platformio-mcp/build/index.js
+```
+
+*Note: Ensure you replace `/path/to/...` with the absolute path to your cloned repository, and restart Claude Code after adding the server.*
 
 ## Troubleshooting
 

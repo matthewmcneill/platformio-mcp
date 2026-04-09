@@ -38,6 +38,8 @@ export interface BoardInfo {
   frequency?: string;
   flash?: number;
   ram?: number;
+  fcpu?: number;
+  rom?: number;
   frameworks?: string[];
   vendor?: string;
   url?: string;
@@ -51,6 +53,8 @@ export const BoardInfoSchema = z.object({
   frequency: z.string().optional(),
   flash: z.number().optional(),
   ram: z.number().optional(),
+  fcpu: z.number().optional(),
+  rom: z.number().optional(),
   frameworks: z.array(z.string()).optional(),
   vendor: z.string().optional(),
   url: z.string().optional(),
@@ -186,7 +190,7 @@ export interface LibraryRepository {
 }
 
 export interface LibraryInfo {
-  id: number;
+  id?: number;
   name: string;
   description?: string;
   keywords?: string[];
@@ -199,7 +203,7 @@ export interface LibraryInfo {
 }
 
 export const LibraryInfoSchema = z.object({
-  id: z.number(),
+  id: z.number().optional(),
   name: z.string(),
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),
@@ -225,6 +229,7 @@ export const LibraryInfoSchema = z.object({
 });
 
 export const LibrariesArraySchema = z.array(LibraryInfoSchema);
+export const LibrariesObjectSchema = z.record(z.string(), z.array(LibraryInfoSchema));
 
 export const LibrarySearchResponseSchema = z.object({
   searchQuery: z.string().optional(),
@@ -329,6 +334,19 @@ export const UploadFirmwareParamsSchema = z.object({
   environment: z.string().optional().describe('Specific environment to upload (from platformio.ini)'),
   sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
   verbose: z.boolean().optional().describe('If true, returns the complete verbose upload log in the result instead of truncating it'),
+  skipBuild: z.boolean().optional().describe('If true, skips the compilation phase and directly flashes the existing build cache'),
+  startSpoolingAfter: z.boolean().optional().describe('If true, forces the background spooler tracking to start automatically after the flash completes'),
+});
+
+// Upload filesystem parameters
+export const UploadFilesystemParamsSchema = z.object({
+  projectDir: z.string().min(1).describe('Path to the PlatformIO project directory'),
+  port: z.string().optional().describe('Upload port (auto-detected if not specified)'),
+  environment: z.string().optional().describe('Specific environment to upload (from platformio.ini)'),
+  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
+  verbose: z.boolean().optional().describe('If true, returns the complete verbose upload log in the result instead of truncating it'),
+  skipBuild: z.boolean().optional().describe('If true, skips the compilation phase and directly flashes the existing build cache'),
+  startSpoolingAfter: z.boolean().optional().describe('If true, forces the background spooler tracking to start automatically after the flash completes'),
 });
 
 // Start monitor parameters

@@ -19,9 +19,28 @@ import { validateBoardId } from '../utils/validation.js';
 import { BoardNotFoundError, PlatformIOError } from '../utils/errors.js';
 
 /**
- * PlatformIO returns boards as a flat array of board objects.
+ * PlatformIO JSON output format varies by version:
+ * - Newer versions return a flat array of boards
+ * - Some versions return an object grouped by platform
  */
-const PioBoardsOutputSchema = z.array(BoardInfoSchema);
+const PioBoardsOutputSchema = z.union([
+  z.array(BoardInfoSchema),
+  z.record(z.string(), z.array(BoardInfoSchema)),
+]);
+
+function normalizeBoardsOutput(
+  output: z.infer<typeof PioBoardsOutputSchema>
+): BoardInfo[] {
+  if (Array.isArray(output)) {
+    return output;
+  }
+
+  const flattened: BoardInfo[] = [];
+  for (const platformBoards of Object.values(output as Record<string, BoardInfo[]>)) {
+    flattened.push(...platformBoards);
+  }
+  return flattened;
+}
 
 /**
  * Lists all available PlatformIO boards with optional filtering.
@@ -45,7 +64,7 @@ export async function listBoards(filter?: string): Promise<BoardInfo[]> {
       { timeout: 30000 }
     );
 
-    const allBoards: BoardInfo[] = result;
+    const allBoards: BoardInfo[] = normalizeBoardsOutput(result);
 
     // Apply filter if provided (PlatformIO does basic filtering, but we can enhance it)
     if (filter && filter.trim().length > 0) {
@@ -91,7 +110,7 @@ export async function getBoardInfo(boardId: string): Promise<BoardInfo> {
     );
 
     // Find exact match
-    const board = result.find(b => b.id === boardId);
+    const board = normalizeBoardsOutput(result).find(b => b.id === boardId);
     if (board) {
       return board;
     }
@@ -124,13 +143,15 @@ export async function listBoardsByPlatform(): Promise<Record<string, BoardInfo[]
       { timeout: 30000 }
     );
 
-    // Group the flat array into a Record by platform
+    // Group the array into a Record by platform
+    const flattened = normalizeBoardsOutput(result);
     const grouped: Record<string, BoardInfo[]> = {};
-    for (const board of result) {
-      if (!grouped[board.platform]) {
-        grouped[board.platform] = [];
+    for (const board of flattened) {
+      const platform = board.platform || 'unknown';
+      if (!grouped[platform]) {
+        grouped[platform] = [];
       }
-      grouped[board.platform].push(board);
+      grouped[platform].push(board);
     }
     
     return grouped;

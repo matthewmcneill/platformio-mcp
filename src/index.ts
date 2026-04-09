@@ -23,6 +23,7 @@ import {
   BuildProjectParamsSchema,
   CleanProjectParamsSchema,
   UploadFirmwareParamsSchema,
+  UploadFilesystemParamsSchema,
 
   SearchLibrariesParamsSchema,
   InstallLibraryParamsSchema,
@@ -36,7 +37,7 @@ import { listBoards, getBoardInfo } from './tools/boards.js';
 import { listDevices } from './tools/devices.js';
 import { initProject } from './tools/projects.js';
 import { buildProject, cleanProject } from './tools/build.js';
-import { uploadFirmware } from './tools/upload.js';
+import { uploadFirmware, uploadFilesystem } from './tools/upload.js';
 import { queryLogs, startSpoolingDaemon, stopSpoolingDaemon } from './tools/monitor.js';
 import { searchLibraries, installLibrary, listInstalledLibraries } from './tools/libraries.js';
 import { checkPlatformIOInstalled } from './platformio.js';
@@ -164,6 +165,44 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: 'upload_filesystem',
+        description: 'Builds and uploads a SPIFFS/LittleFS filesystem image to the connected device. Automatically builds if necessary. Supports automatic port detection.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            projectDir: {
+              type: 'string',
+              description: 'Path to the PlatformIO project directory',
+            },
+            port: {
+              type: 'string',
+              description: 'Optional upload port (auto-detected if not specified)',
+            },
+            environment: {
+              type: 'string',
+              description: 'Optional specific environment from platformio.ini',
+            },
+            sessionId: {
+              type: 'string',
+              description: 'Agent session ID for pipeline lock validation',
+            },
+            verbose: {
+              type: 'boolean',
+              description: 'If true, returns the complete verbose upload log in the result instead of truncating it',
+            },
+            skipBuild: {
+              type: 'boolean',
+              description: 'If true, skips the compilation phase and directly flashes the existing build cache',
+            },
+            startSpoolingAfter: {
+              type: 'boolean',
+              description: 'If true, forces the background spooler tracking to start automatically after the flash completes',
+            },
+          },
+          required: ['projectDir'],
+        },
+      },
+      {
         name: 'upload_firmware',
         description: 'Uploads compiled firmware to a connected device. Automatically builds if necessary. Supports automatic port detection.',
         inputSchema: {
@@ -184,6 +223,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             sessionId: {
               type: 'string',
               description: 'Agent session ID for pipeline lock validation',
+            },
+            verbose: {
+              type: 'boolean',
+              description: 'If true, returns the complete verbose upload log in the result instead of truncating it',
+            },
+            skipBuild: {
+              type: 'boolean',
+              description: 'If true, skips the compilation phase and directly flashes the existing build cache',
+            },
+            startSpoolingAfter: {
+              type: 'boolean',
+              description: 'If true, forces the background spooler tracking to start automatically after the flash completes',
             },
           },
           required: ['projectDir'],
@@ -411,10 +462,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case 'upload_filesystem': {
+        const params = UploadFilesystemParamsSchema.parse(args);
+        
+        const executeTask = () => uploadFilesystem(params.projectDir, params.port, params.environment, params.verbose, params.skipBuild, params.startSpoolingAfter);
+        const result = params.sessionId 
+          ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
+          : await hardwareLockManager.withImplicitLock(executeTask);
+          
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
       case 'upload_firmware': {
         const params = UploadFirmwareParamsSchema.parse(args);
         
-        const executeTask = () => uploadFirmware(params.projectDir, params.port, params.environment, params.verbose);
+        const executeTask = () => uploadFirmware(params.projectDir, params.port, params.environment, params.verbose, params.skipBuild, params.startSpoolingAfter);
         const result = params.sessionId 
           ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
           : await hardwareLockManager.withImplicitLock(executeTask);

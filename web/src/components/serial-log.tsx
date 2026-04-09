@@ -6,15 +6,16 @@
  * - SerialLog: React Component
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { LogEvent, SpoolerState } from '../app.js';
+import { LogEvent, SpoolerState, LockState } from '../app.js';
 
 interface Props {
   logs: LogEvent[];
   spoolerState: SpoolerState;
   activeWorkspace?: string | null;
+  lockState?: LockState;
 }
 
-const SerialLog: React.FC<Props> = ({ logs, spoolerState, activeWorkspace }) => {
+const SerialLog: React.FC<Props> = ({ logs, spoolerState, activeWorkspace, lockState }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [localAutoReconnect, setLocalAutoReconnect] = useState(spoolerState.autoReconnect);
   const [availablePorts, setAvailablePorts] = useState<{ port: string; description: string }[]>([]);
@@ -64,7 +65,7 @@ const SerialLog: React.FC<Props> = ({ logs, spoolerState, activeWorkspace }) => 
 
   const handleStart = async (checkedState?: boolean) => {
     try {
-      await fetch('/api/spooler/start', {
+      const res = await fetch('/api/spooler/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -73,8 +74,13 @@ const SerialLog: React.FC<Props> = ({ logs, spoolerState, activeWorkspace }) => 
           projectDir: activeWorkspace ?? undefined
         })
       });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(`Could not start spooler: ${data.error || res.statusText}`);
+      }
     } catch (e) {
       console.error('Failed to start spooling', e);
+      alert(`Could not start spooler: ${e}`);
     }
   };
 
@@ -140,7 +146,7 @@ const SerialLog: React.FC<Props> = ({ logs, spoolerState, activeWorkspace }) => 
           {spoolerState.active ? (
              <button onClick={handleStop} style={{ padding: '4px 12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Stop</button>
           ) : (
-             <button onClick={() => handleStart()} style={{ padding: '4px 12px', background: '#2ecc71', color: '#111', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Start Spooling</button>
+             <button title={lockState?.isLocked ? "Hardware locked by automated process" : ""} disabled={lockState?.isLocked} onClick={() => handleStart()} style={{ padding: '4px 12px', background: lockState?.isLocked ? '#444' : '#2ecc71', color: lockState?.isLocked ? '#888' : '#111', border: 'none', borderRadius: '4px', cursor: lockState?.isLocked ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>Start Spooling</button>
           )}
         </div>
       </div>

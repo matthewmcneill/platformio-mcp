@@ -120,7 +120,7 @@ function App() {
         </div>
         <div className="grid-column right-column">
           <BuildTerminal logs={buildLogs} />
-          <SerialLog logs={serialLogs} spoolerState={spoolerState} activeWorkspace={activeWorkspace} />
+          <SerialLog logs={serialLogs} spoolerState={spoolerState} activeWorkspace={activeWorkspace} lockState={lockState} />
         </div>
       </main>
     </div>

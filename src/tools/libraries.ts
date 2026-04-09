@@ -11,9 +11,10 @@
  * - getLibraryInfo: Resolves data for registry ID.
  */
 
+import { z } from 'zod';
 import { platformioExecutor } from '../platformio.js';
 import type { LibraryInfo, LibraryInstallResult } from '../types.js';
-import { LibrariesArraySchema, LibrarySearchResponseSchema } from '../types.js';
+import { LibrariesArraySchema, LibrariesObjectSchema, LibrarySearchResponseSchema } from '../types.js';
 import { validateLibraryName, validateVersion, validateProjectPath } from '../utils/validation.js';
 import { LibraryError, PlatformIOError } from '../utils/errors.js';
 
@@ -134,11 +135,28 @@ export async function listInstalledLibraries(projectDir?: string): Promise<Libra
     const result = await platformioExecutor.executeWithJsonOutput(
       'lib',
       ['list'],
-      LibrariesArraySchema,
+      z.union([LibrariesArraySchema, LibrariesObjectSchema]),
       execOptions
     );
 
-    return result;
+    if (Array.isArray(result)) {
+      return result;
+    }
+
+    const allLibs: LibraryInfo[] = [];
+    Object.values(result as Record<string, LibraryInfo[]>).forEach(libs => {
+      allLibs.push(...libs);
+    });
+
+    const uniqueLibs = new Map<string, LibraryInfo>();
+    for (const lib of allLibs) {
+      const key = `${lib.name}@${lib.version || 'unknown'}`;
+      if (!uniqueLibs.has(key)) {
+        uniqueLibs.set(key, lib);
+      }
+    }
+
+    return Array.from(uniqueLibs.values());
   } catch (error) {
     // If no libraries are installed, return empty array
     if (error instanceof PlatformIOError) {
@@ -252,7 +270,7 @@ export async function getLibraryInfo(libraryNameOrId: string): Promise<LibraryIn
     // Try to find exact match first
     const exactMatch = results.find(lib => 
       lib.name.toLowerCase() === libraryNameOrId.toLowerCase() ||
-      lib.id.toString() === libraryNameOrId
+      lib.id?.toString() === libraryNameOrId
     );
 
     if (exactMatch) {
