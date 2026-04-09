@@ -35,9 +35,9 @@ export interface BoardInfo {
   name: string;
   platform: string;
   mcu: string;
-  frequency: string;
-  flash: number;
-  ram: number;
+  frequency?: string;
+  flash?: number;
+  ram?: number;
   frameworks?: string[];
   vendor?: string;
   url?: string;
@@ -48,9 +48,9 @@ export const BoardInfoSchema = z.object({
   name: z.string(),
   platform: z.string(),
   mcu: z.string(),
-  frequency: z.string(),
-  flash: z.number(),
-  ram: z.number(),
+  frequency: z.string().optional(),
+  flash: z.number().optional(),
+  ram: z.number().optional(),
   frameworks: z.array(z.string()).optional(),
   vendor: z.string().optional(),
   url: z.string().optional(),
@@ -193,8 +193,8 @@ export interface LibraryInfo {
   authors?: LibraryAuthor[];
   repository?: LibraryRepository;
   version?: string;
-  frameworks?: string[];
-  platforms?: string[];
+  frameworks?: any[];
+  platforms?: any[];
   homepage?: string;
 }
 
@@ -219,12 +219,19 @@ export const LibraryInfoSchema = z.object({
     })
     .optional(),
   version: z.string().optional(),
-  frameworks: z.array(z.string()).optional(),
-  platforms: z.array(z.string()).optional(),
+  frameworks: z.array(z.any()).optional(),
+  platforms: z.array(z.any()).optional(),
   homepage: z.string().optional(),
 });
 
 export const LibrariesArraySchema = z.array(LibraryInfoSchema);
+
+export const LibrarySearchResponseSchema = z.object({
+  searchQuery: z.string().optional(),
+  total: z.number().optional(),
+  page: z.number().optional(),
+  items: z.array(LibraryInfoSchema),
+});
 
 export interface LibrarySearchConfig {
   query: string;
@@ -278,6 +285,16 @@ export const ListBoardsParamsSchema = z.object({
   filter: z.string().optional().describe('Optional filter by platform, framework, or MCU'),
 });
 
+// Hardware Lock parameters
+export const AcquireLockParamsSchema = z.object({
+  sessionId: z.string().min(1).describe('Unique ID of the agent session acquiring the lock for a multi-step pipeline'),
+  reason: z.string().optional().describe('Reason for acquiring the lock (e.g., Task Name)'),
+});
+
+export const ReleaseLockParamsSchema = z.object({
+  sessionId: z.string().min(1).describe('Unique ID of the agent session releasing the lock'),
+});
+
 // Get board info parameters
 export const GetBoardInfoParamsSchema = z.object({
   boardId: z.string().min(1).describe('Board ID to retrieve information for'),
@@ -295,11 +312,14 @@ export const InitProjectParamsSchema = z.object({
 export const BuildProjectParamsSchema = z.object({
   projectDir: z.string().min(1).describe('Path to the PlatformIO project directory'),
   environment: z.string().optional().describe('Specific environment to build (from platformio.ini)'),
+  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
+  verbose: z.boolean().optional().describe('If true, returns the complete verbose build log in the result instead of truncating it on success'),
 });
 
 // Clean project parameters
 export const CleanProjectParamsSchema = z.object({
   projectDir: z.string().min(1).describe('Path to the PlatformIO project directory'),
+  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
 });
 
 // Upload firmware parameters
@@ -307,6 +327,8 @@ export const UploadFirmwareParamsSchema = z.object({
   projectDir: z.string().min(1).describe('Path to the PlatformIO project directory'),
   port: z.string().optional().describe('Upload port (auto-detected if not specified)'),
   environment: z.string().optional().describe('Specific environment to upload (from platformio.ini)'),
+  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
+  verbose: z.boolean().optional().describe('If true, returns the complete verbose upload log in the result instead of truncating it'),
 });
 
 // Start monitor parameters
@@ -315,6 +337,7 @@ export const StartMonitorParamsSchema = z.object({
   baud: z.number().optional().describe('Baud rate for serial communication'),
   projectDir: z.string().optional().describe('Project directory (for environment-specific settings)'),
   durationSeconds: z.number().optional().describe('Duration to read from the serial port in seconds'),
+  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
 });
 
 // Search libraries parameters

@@ -15,6 +15,7 @@ import { portalEvents } from './events.js';
 import { getSpoolerState, startSpoolingDaemon, stopSpoolingDaemon } from '../tools/monitor.js';
 import { listDevices } from '../tools/devices.js';
 import { exec } from 'child_process';
+import { hardwareLockManager } from '../utils/lock-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,6 +75,10 @@ export function startPortalServer(defaultPort = 8080) {
     // Provide initial status state
     socket.emit('server_status', { timestamp: Date.now(), status: 'online' });
     socket.emit('spooler_state', getSpoolerState());
+    socket.emit('lock_state', {
+      timestamp: Date.now(),
+      ...hardwareLockManager.getLockStatus()
+    });
     
     // Inject active workspace layer naturally on UI boot
     const activeWorkspace = portalEvents.getLastKnownWorkspace();
@@ -89,6 +94,7 @@ export function startPortalServer(defaultPort = 8080) {
   portalEvents.on('server_status', (data) => io.emit('server_status', data));
   portalEvents.on('spooler_state', (data) => io.emit('spooler_state', data));
   portalEvents.on('workspace_state', (data) => io.emit('workspace_state', data));
+  portalEvents.on('lock_state', (data) => io.emit('lock_state', data));
 
   const port = process.env.PORTAL_PORT ? parseInt(process.env.PORTAL_PORT) : defaultPort;
 

@@ -16,6 +16,7 @@ import { parseStderrErrors } from '../utils/errors.js';
 import { serialManager } from '../utils/serial-manager.js';
 import { diagnoseError } from '../utils/diagnostics.js';
 import { startSpoolingDaemon, stopSpoolingDaemon } from './monitor.js';
+import { portalEvents } from '../api/events.js';
 
 /**
  * Uploads firmware to a connected device.
@@ -23,12 +24,14 @@ import { startSpoolingDaemon, stopSpoolingDaemon } from './monitor.js';
  * @param projectDir - Path to the project root slated for upload.
  * @param port - Optional override for destination serial connection.
  * @param environment - Target PIO runtime context block.
+ * @param verbose - If true, returns full upload payload.
  * @returns Upload completion status and output streams.
  */
 export async function uploadFirmware(
   projectDir: string,
   port?: string,
-  environment?: string
+  environment?: string,
+  verbose?: boolean
 ): Promise<UploadResult> {
   const validatedPath = validateProjectPath(projectDir);
 
@@ -60,6 +63,7 @@ export async function uploadFirmware(
     const result = await platformioExecutor.execute('run', args.slice(1), {
       cwd: validatedPath,
       timeout: 300000, // 5 minutes
+      onOutput: (chunk) => portalEvents.emitBuildLog(validatedPath, chunk),
     });
 
     const success = result.exitCode === 0;
@@ -73,7 +77,7 @@ export async function uploadFirmware(
     return {
       success,
       port,
-      output: success ? undefined : result.stdout,
+      output: (success && !verbose) ? undefined : result.stdout,
       errors,
       diagnostics
     };
@@ -99,12 +103,14 @@ export async function uploadFirmware(
  * @param projectDir - Applicable codebase tree.
  * @param port - Specific hardware port to flash and watch.
  * @param environment - Bound environment parameters execution context.
+ * @param verbose - If true, returns full log flow strings.
  * @returns Terminal logging outputs array sequence from upload.
  */
 export async function uploadAndMonitor(
   projectDir: string,
   port?: string,
-  environment?: string
+  environment?: string,
+  verbose?: boolean
 ): Promise<UploadResult> {
   const validatedPath = validateProjectPath(projectDir);
 
@@ -135,6 +141,7 @@ export async function uploadAndMonitor(
     const result = await platformioExecutor.execute('run', args.slice(1), {
       cwd: validatedPath,
       timeout: 300000,
+      onOutput: (chunk) => portalEvents.emitBuildLog(validatedPath, chunk),
     });
 
     const success = result.exitCode === 0;
@@ -148,7 +155,7 @@ export async function uploadAndMonitor(
     return {
       success,
       port,
-      output: success ? undefined : result.stdout,
+      output: (success && !verbose) ? undefined : result.stdout,
       errors,
       diagnostics
     };
@@ -174,13 +181,15 @@ export async function uploadAndMonitor(
  * @param projectDir - Full reference target codebase directory.
  * @param port - Specific hardware routing destination.
  * @param environment - Optional build settings context block string.
+ * @param verbose - If true, returns full operation output logs.
  * @returns Compound build sequence operation payload object.
  */
 export async function buildAndUpload(
   projectDir: string,
   port?: string,
-  environment?: string
+  environment?: string,
+  verbose?: boolean
 ): Promise<UploadResult> {
   // Upload target automatically builds first if needed
-  return uploadFirmware(projectDir, port, environment);
+  return uploadFirmware(projectDir, port, environment, verbose);
 }

@@ -6,13 +6,15 @@
  * - SettingsPanel: React Component
  */
 import React from 'react';
+import { LockState } from '../app.js';
 
 interface Props {
   status: string;
   socket: any; // Socket
+  lockState: LockState;
 }
 
-const SettingsPanel: React.FC<Props> = ({ status }) => {
+const SettingsPanel: React.FC<Props> = ({ status, lockState }) => {
   return (
     <div className="panel settings-panel">
       <div className="panel-header">
@@ -29,6 +31,18 @@ const SettingsPanel: React.FC<Props> = ({ status }) => {
           <span className="setting-label">Frontend Mode:</span>
           <span className="setting-value">Vite + React</span>
         </div>
+        <div className="setting-row">
+          <span className="setting-label">Hardware Lock:</span>
+          <span className={`setting-value ${lockState.isLocked ? 'status-err' : 'status-ok'}`}>
+            {lockState.isLocked ? `LOCKED` : 'AVAILABLE'}
+          </span>
+        </div>
+        {lockState.isLocked && lockState.sessionId && (
+          <div className="setting-row">
+            <span className="setting-label">Locked By:</span>
+            <span className="setting-value" style={{ wordBreak: 'break-all' }}>{lockState.sessionId}</span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -13,7 +13,7 @@
 
 import { platformioExecutor } from '../platformio.js';
 import type { LibraryInfo, LibraryInstallResult } from '../types.js';
-import { LibrariesArraySchema } from '../types.js';
+import { LibrariesArraySchema, LibrarySearchResponseSchema } from '../types.js';
 import { validateLibraryName, validateVersion, validateProjectPath } from '../utils/validation.js';
 import { LibraryError, PlatformIOError } from '../utils/errors.js';
 
@@ -33,16 +33,18 @@ export async function searchLibraries(query: string, limit?: number): Promise<Li
     const result = await platformioExecutor.executeWithJsonOutput(
       'lib',
       ['search', query.trim()],
-      LibrariesArraySchema,
+      LibrarySearchResponseSchema,
       { timeout: 30000 }
     );
 
+    const items = result.items || [];
+
     // Apply limit if specified
     if (limit && limit > 0) {
-      return result.slice(0, limit);
+      return items.slice(0, limit);
     }
 
-    return result;
+    return items;
   } catch (error) {
     throw new LibraryError(
       `Failed to search libraries with query '${query}': ${error}`,

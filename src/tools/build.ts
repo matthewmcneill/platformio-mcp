@@ -15,17 +15,20 @@ import { validateProjectPath, validateEnvironmentName } from '../utils/validatio
 import { BuildError, PlatformIOError } from '../utils/errors.js';
 import { parseStderrErrors } from '../utils/errors.js';
 import { diagnoseError } from '../utils/diagnostics.js';
+import { portalEvents } from '../api/events.js';
 
 /**
  * Builds a PlatformIO project.
  * 
  * @param projectDir - The target location of the PIO project.
  * @param environment - Optional specific platformio.ini environment target.
+ * @param verbose - If true, returns the complete verbose build log in the result instead of truncating it.
  * @returns Resulting build status and output log payloads.
  */
 export async function buildProject(
   projectDir: string,
-  environment?: string
+  environment?: string,
+  verbose?: boolean
 ): Promise<BuildResult> {
   const validatedPath = validateProjectPath(projectDir);
 
@@ -34,7 +37,7 @@ export async function buildProject(
   }
 
   try {
-    const args: string[] = ['run'];
+    const args: string[] = [];
 
     // Add environment if specified
     if (environment) {
@@ -45,6 +48,7 @@ export async function buildProject(
     const result = await platformioExecutor.execute('run', args, {
       cwd: validatedPath,
       timeout: 600000, // 10 minutes
+      onOutput: (chunk) => portalEvents.emitBuildLog(validatedPath, chunk),
     });
 
     const success = result.exitCode === 0;
@@ -65,7 +69,7 @@ export async function buildProject(
     return {
       success,
       environment: environment || 'default',
-      output: success ? undefined : result.stdout, // Strictly token-optimized payload
+      output: (success && !verbose) ? undefined : result.stdout,
       errors,
       diagnostics,
       ramUsageBytes,
@@ -98,6 +102,7 @@ export async function cleanProject(projectDir: string): Promise<CleanResult> {
     const result = await platformioExecutor.execute('run', ['--target', 'clean'], {
       cwd: validatedPath,
       timeout: 60000,
+      onOutput: (chunk) => portalEvents.emitBuildLog(validatedPath, chunk),
     });
 
     const success = result.exitCode === 0;
@@ -130,12 +135,14 @@ export async function cleanProject(projectDir: string): Promise<CleanResult> {
  * @param projectDir - Project workspace to run the target against.
  * @param target - Build operation target designation.
  * @param environment - Associated subset configuration to use.
+ * @param verbose - If true, returns full output payload instead of truncating on success.
  * @returns Completed build execution status outcome.
  */
 export async function buildTarget(
   projectDir: string,
   target: string,
-  environment?: string
+  environment?: string,
+  verbose?: boolean
 ): Promise<BuildResult> {
   const validatedPath = validateProjectPath(projectDir);
 
@@ -153,6 +160,7 @@ export async function buildTarget(
     const result = await platformioExecutor.execute('run', args.slice(1), {
       cwd: validatedPath,
       timeout: 600000,
+      onOutput: (chunk) => portalEvents.emitBuildLog(validatedPath, chunk),
     });
 
     const success = result.exitCode === 0;
@@ -173,7 +181,7 @@ export async function buildTarget(
     return {
       success,
       environment: environment || 'default',
-      output: success ? undefined : result.stdout, // Strictly token-optimized payload
+      output: (success && !verbose) ? undefined : result.stdout,
       errors,
       diagnostics,
       ramUsageBytes,

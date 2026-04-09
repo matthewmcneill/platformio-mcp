@@ -37,6 +37,12 @@ export type SpoolerState = {
   autoReconnect: boolean;
 };
 
+export type LockState = {
+  isLocked: boolean;
+  sessionId?: string;
+  reason?: string;
+};
+
 function App() {
   const [status, setStatus] = useState<'online' | 'offline'>('offline');
   const [activities, setActivities] = useState<AgentEvent[]>([]);
@@ -44,6 +50,7 @@ function App() {
   const [serialLogs, setSerialLogs] = useState<LogEvent[]>([]);
   const [spoolerState, setSpoolerState] = useState<SpoolerState>({ active: false, autoReconnect: true });
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null);
+  const [lockState, setLockState] = useState<LockState>({ isLocked: false });
 
   useEffect(() => {
     socket.on('server_status', (data) => {
@@ -79,6 +86,10 @@ function App() {
       setActiveWorkspace(data.projectDir);
     });
 
+    socket.on('lock_state', (data: LockState) => {
+      setLockState(data);
+    });
+
     return () => {
       socket.off('server_status');
       socket.off('agent_activity');
@@ -86,6 +97,7 @@ function App() {
       socket.off('serial_log');
       socket.off('spooler_state');
       socket.off('workspace_state');
+      socket.off('lock_state');
     };
   }, []);
 
@@ -104,7 +116,7 @@ function App() {
       <main className="dashboard-grid">
         <div className="grid-column left-column">
           <AgentActivity activities={activities} />
-          <SettingsPanel status={status} socket={socket} />
+          <SettingsPanel status={status} socket={socket} lockState={lockState} />
         </div>
         <div className="grid-column right-column">
           <BuildTerminal logs={buildLogs} />

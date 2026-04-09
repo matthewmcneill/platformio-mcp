@@ -13,7 +13,6 @@
  */
 
 import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { z } from 'zod';
 import type { CommandResult } from './types.js';
 import {
@@ -23,7 +22,7 @@ import {
   isPlatformIONotFoundError,
 } from './utils/errors.js';
 
-const execFileAsync = promisify(execFile);
+
 
 // Default timeout for commands (5 minutes for builds)
 const DEFAULT_TIMEOUT = 300000; // 5 minutes
@@ -32,7 +31,7 @@ const DEFAULT_TIMEOUT = 300000; // 5 minutes
  * Executes a PlatformIO CLI command.
  * 
  * @param args - CLI arguments to pass to the PlatformIO binary.
- * @param options - Execution configuration options (timeout, cwd).
+ * @param options - Execution configuration options (timeout, cwd, onOutput callback).
  * @returns Result containing standard outputs and exit code.
  */
 export async function execPioCommand(
@@ -41,28 +40,44 @@ export async function execPioCommand(
     cwd?: string;
     timeout?: number;
     parseJson?: boolean;
+    onOutput?: (chunk: string) => void;
   } = {}
 ): Promise<CommandResult> {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT;
+
+  const runWrappedProcess = (binary: string): Promise<{stdout: string, stderr: string, code: number}> => {
+    return new Promise((resolve, reject) => {
+      const child = execFile(binary, args, {
+        cwd: options.cwd,
+        timeout,
+        maxBuffer: 10 * 1024 * 1024,
+      }, (error, stdout, stderr) => {
+        if (error) {
+          (error as any).stdout = stdout;
+          (error as any).stderr = stderr;
+          reject(error);
+        } else {
+          resolve({ stdout: stdout.toString(), stderr: stderr.toString(), code: 0 });
+        }
+      });
+
+      if (options.onOutput) {
+        child.stdout?.on('data', (data) => options.onOutput!(data.toString()));
+        child.stderr?.on('data', (data) => options.onOutput!(data.toString()));
+      }
+    });
+  };
 
   try {
     // Try 'pio' first, then fall back to 'platformio'
     let result;
     try {
-      result = await execFileAsync('pio', args, {
-        cwd: options.cwd,
-        timeout,
-        maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large outputs
-      });
+      result = await runWrappedProcess('pio');
     } catch (firstError) {
       // If 'pio' not found, try 'platformio'
       if (isPlatformIONotFoundError(firstError)) {
         try {
-          result = await execFileAsync('platformio', args, {
-            cwd: options.cwd,
-            timeout,
-            maxBuffer: 10 * 1024 * 1024,
-          });
+          result = await runWrappedProcess('platformio');
         } catch (secondError) {
           if (isPlatformIONotFoundError(secondError)) {
             throw new PlatformIONotInstalledError();
@@ -75,8 +90,8 @@ export async function execPioCommand(
     }
 
     return {
-      stdout: result.stdout || '',
-      stderr: result.stderr || '',
+      stdout: result.stdout,
+      stderr: result.stderr,
       exitCode: 0,
     };
   } catch (error: any) {
@@ -190,7 +205,7 @@ export class PlatformIOExecutor {
    * @param options - Execution directives for the child process.
    * @returns Structured runtime output results.
    */
-  async execute(command: string, args: string[], options?: { cwd?: string; timeout?: number }): Promise<CommandResult> {
+  async execute(command: string, args: string[], options?: { cwd?: string; timeout?: number; onOutput?: (c: string) => void }): Promise<CommandResult> {
     const fullArgs = [command, ...args];
     return execPioCommand(fullArgs, options);
   }
@@ -226,7 +241,7 @@ export class PlatformIOExecutor {
     command: string,
     args: string[],
     schema: z.ZodSchema<T>,
-    options?: { cwd?: string; timeout?: number }
+    options?: { cwd?: string; timeout?: number; onOutput?: (c: string) => void }
   ): Promise<T> {
     // Ensure --json-output is included
     const fullArgs = [...args];

@@ -62,6 +62,16 @@ class PortalEventEmitter extends EventEmitter {
   }
 
   /**
+   * Emit hardware queue lock status 
+   */
+  emitLockState(state: { isLocked: boolean; sessionId?: string; reason?: string }) {
+    this.emit('lock_state', {
+      timestamp: Date.now(),
+      ...state
+    });
+  }
+
+  /**
    * Emit spooler connection and config properties
    */
   emitSpoolerState(state: { active: boolean, port?: string, logFile?: string, autoReconnect: boolean }) {

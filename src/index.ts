@@ -27,6 +27,8 @@ import {
   SearchLibrariesParamsSchema,
   InstallLibraryParamsSchema,
   ListInstalledLibrariesParamsSchema,
+  AcquireLockParamsSchema,
+  ReleaseLockParamsSchema,
 } from './types.js';
 
 // Import tool functions
@@ -41,6 +43,7 @@ import { checkPlatformIOInstalled } from './platformio.js';
 import { formatPlatformIOError } from './utils/errors.js';
 import { startPortalServer } from './api/server.js';
 import { portalEvents } from './api/events.js';
+import { hardwareLockManager } from './utils/lock-manager.js';
 
 // Create server instance
 const server = new Server(
@@ -134,6 +137,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'string',
               description: 'Optional specific environment to build from platformio.ini',
             },
+            sessionId: {
+              type: 'string',
+              description: 'Agent session ID for pipeline lock validation',
+            },
           },
           required: ['projectDir'],
         },
@@ -147,6 +154,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             projectDir: {
               type: 'string',
               description: 'Path to the PlatformIO project directory',
+            },
+            sessionId: {
+              type: 'string',
+              description: 'Agent session ID for pipeline lock validation',
             },
           },
           required: ['projectDir'],
@@ -169,6 +180,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             environment: {
               type: 'string',
               description: 'Optional specific environment from platformio.ini',
+            },
+            sessionId: {
+              type: 'string',
+              description: 'Agent session ID for pipeline lock validation',
             },
           },
           required: ['projectDir'],
@@ -194,7 +209,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             port: { type: 'string', description: 'Optional COM path. Falls back to default.' },
             baud: { type: 'number', description: 'Optional baud rate.' },
-            projectDir: { type: 'string', description: 'Target project boundary to deposit raw hardware logs into instead of the global server cache.' }
+            projectDir: { type: 'string', description: 'Target project boundary to deposit raw hardware logs into instead of the global server cache.' },
+            sessionId: { type: 'string', description: 'Agent session ID for pipeline lock validation' }
           }
         }
       },
@@ -204,10 +220,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: 'object',
           properties: {
-            port: { type: 'string', description: 'COM port to stop listening on.' }
+            port: { type: 'string', description: 'COM port to stop listening on.' },
+            sessionId: { type: 'string', description: 'Agent session ID for pipeline lock validation' }
           },
           required: ['port']
         }
+      },
+      {
+        name: 'acquire_lock',
+        description: 'Explicitly claim the hardware queue lock for multi-step tasks. Throws if already held.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string', description: 'Your active Session ID' },
+            reason: { type: 'string', description: 'Reason for locking' }
+          },
+          required: ['sessionId']
+        }
+      },
+      {
+        name: 'release_lock',
+        description: 'Release the explicit queue lock matching your session ID.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string', description: 'Your active Session ID' }
+          },
+          required: ['sessionId']
+        }
+      },
+      {
+        name: 'get_lock_status',
+        description: 'Reveals who currently owns the hardware queue lock.',
+        inputSchema: { type: 'object', properties: {} }
       },
       {
         name: 'search_libraries',
@@ -332,7 +377,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'build_project': {
         const params = BuildProjectParamsSchema.parse(args);
-        const result = await buildProject(params.projectDir, params.environment);
+        
+        const executeTask = () => buildProject(params.projectDir, params.environment, params.verbose);
+        const result = params.sessionId 
+          ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
+          : await hardwareLockManager.withImplicitLock(executeTask);
+          
         return {
           content: [
             {
@@ -345,7 +395,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'clean_project': {
         const params = CleanProjectParamsSchema.parse(args);
-        const result = await cleanProject(params.projectDir);
+        
+        const executeTask = () => cleanProject(params.projectDir);
+        const result = params.sessionId 
+          ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
+          : await hardwareLockManager.withImplicitLock(executeTask);
+          
         return {
           content: [
             {
@@ -358,7 +413,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'upload_firmware': {
         const params = UploadFirmwareParamsSchema.parse(args);
-        const result = await uploadFirmware(params.projectDir, params.port, params.environment);
+        
+        const executeTask = () => uploadFirmware(params.projectDir, params.port, params.environment, params.verbose);
+        const result = params.sessionId 
+          ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
+          : await hardwareLockManager.withImplicitLock(executeTask);
+          
         return {
           content: [
             {
@@ -377,16 +437,46 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'start_spooling': {
-        const result = await startSpoolingDaemon(args.port, args.baud, true, args.projectDir);
+        const executeTask = () => startSpoolingDaemon(args.port, args.baud, true, args.projectDir);
+        const result = args.sessionId
+          ? (hardwareLockManager.requireLock(args.sessionId), await executeTask())
+          : await hardwareLockManager.withImplicitLock(executeTask);
+          
         return {
           content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
         };
       }
 
       case 'stop_spooling': {
-        stopSpoolingDaemon(args.port);
+        const executeTask = async () => { stopSpoolingDaemon(args.port); return { success: true, message: `Terminated listener on ${args.port}` }; };
+        const result = args.sessionId
+          ? (hardwareLockManager.requireLock(args.sessionId), await executeTask())
+          : await hardwareLockManager.withImplicitLock(executeTask);
+          
         return {
-          content: [{ type: 'text', text: JSON.stringify({ success: true, message: `Terminated listener on ${args.port}` }, null, 2) }]
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+        };
+      }
+
+      case 'acquire_lock': {
+        const params = AcquireLockParamsSchema.parse(args);
+        hardwareLockManager.acquireLock(params.sessionId, params.reason);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'Hardware lock acquired explicitly.' }, null, 2) }]
+        };
+      }
+
+      case 'release_lock': {
+        const params = ReleaseLockParamsSchema.parse(args);
+        hardwareLockManager.releaseLock(params.sessionId);
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'Hardware lock released explicitly.' }, null, 2) }]
+        };
+      }
+
+      case 'get_lock_status': {
+        return {
+          content: [{ type: 'text', text: JSON.stringify(hardwareLockManager.getLockStatus(), null, 2) }]
         };
       }
 
