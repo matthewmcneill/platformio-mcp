@@ -9,26 +9,44 @@ import React, { useEffect, useRef, useState } from 'react';
 import { LogEvent, SpoolerState, LockState } from '../app.js';
 
 interface Props {
-  logs: LogEvent[];
-  spoolerState: SpoolerState;
+  logs: Record<string, LogEvent[]>;
+  spoolerStates: Record<string, SpoolerState>;
   activeWorkspace?: string | null;
   lockState?: LockState;
 }
 
-const SerialLog: React.FC<Props> = ({ logs, spoolerState, activeWorkspace, lockState }) => {
+const SerialLog: React.FC<Props> = ({ logs, spoolerStates, activeWorkspace, lockState }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [localAutoReconnect, setLocalAutoReconnect] = useState(spoolerState.autoReconnect);
   const [availablePorts, setAvailablePorts] = useState<{ port: string; description: string }[]>([]);
-  const [selectedPort, setSelectedPort] = useState<string>('');
+  const [selectedTab, setSelectedTab] = useState<string>('');
+  const [pendingPort, setPendingPort] = useState<string>('');
   const [isAutoScrollFastened, setIsAutoScrollFastened] = useState(true);
+
+  const activePorts = Object.keys(spoolerStates);
+
+  const isValidDevice = (device: { port: string; description: string }) => {
+    const port = device.port.toLowerCase();
+    const desc = device.description?.toLowerCase() || '';
+    return (
+      !port.includes('bluetooth') && 
+      !port.includes('blth') && 
+      desc !== 'n/a' && 
+      desc !== ''
+    );
+  };
 
   const fetchDevices = async () => {
     try {
       const res = await fetch('/api/devices');
       const data = await res.json();
       setAvailablePorts(data);
-      if (data.length > 0 && !selectedPort) {
-        setSelectedPort(data[0].port);
+      
+      // Smart Auto-focus: prioritize valid hardware over system/virtual ports
+      if (!selectedTab && data.length > 0) {
+        const firstValid = data.find(isValidDevice);
+        if (firstValid) {
+          setSelectedTab(firstValid.port);
+        }
       }
     } catch (e) {
       console.error('Failed to fetch devices', e);
@@ -39,132 +57,166 @@ const SerialLog: React.FC<Props> = ({ logs, spoolerState, activeWorkspace, lockS
     fetchDevices();
   }, []);
 
+  // Synchronize UI selection with external spooler changes (MCP commands)
   useEffect(() => {
-    if (spoolerState.active && spoolerState.port) {
-      setSelectedPort(spoolerState.port);
+    // Scenario 1: Tab Opening (External Start)
+    // If we have active ports but nothing selected, snap to the first one
+    if (activePorts.length > 0 && !selectedTab) {
+      setSelectedTab(activePorts[0]);
     }
-  }, [spoolerState.active, spoolerState.port]);
 
-  useEffect(() => {
-    setLocalAutoReconnect(spoolerState.autoReconnect);
-  }, [spoolerState.autoReconnect]);
+    // Scenario 2: Tab Shutting (External Stop)
+    // If our current selection is no longer in the active list, we must switch or clear
+    if (selectedTab && !activePorts.includes(selectedTab)) {
+      if (activePorts.length > 0) {
+        setSelectedTab(activePorts[0]); // Switch to next available
+      } else {
+        setSelectedTab(''); // Return to Empty State Launcher
+      }
+    }
+  }, [activePorts, selectedTab]);
 
   useEffect(() => {
     if (isAutoScrollFastened && bottomRef.current) {
-      // Use synchronous direct positioning instead of smooth to prevent 'onScroll' event mid-animation thrashing!
       bottomRef.current.scrollIntoView();
     }
-  }, [logs, isAutoScrollFastened]);
+  }, [logs, selectedTab, isAutoScrollFastened]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    // Massive 150px threshold to completely nullify rapid-fire layout shift miscalculations
     const atBottom = scrollHeight - scrollTop - clientHeight < 150;
     setIsAutoScrollFastened(atBottom);
   };
 
-  const handleStart = async (checkedState?: boolean) => {
+  const handleStart = async (portToStart: string) => {
     try {
       const res = await fetch('/api/spooler/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          port: selectedPort || undefined, 
-          autoReconnect: checkedState ?? localAutoReconnect,
+          port: portToStart, 
+          autoReconnect: true,
           projectDir: activeWorkspace ?? undefined
         })
       });
       if (!res.ok) {
         const data = await res.json();
         alert(`Could not start spooler: ${data.error || res.statusText}`);
+      } else {
+        setSelectedTab(portToStart);
       }
     } catch (e) {
       console.error('Failed to start spooling', e);
-      alert(`Could not start spooler: ${e}`);
     }
   };
 
-  const handleStop = async () => {
+  const handleStop = async (portToStop: string) => {
     try {
-      await fetch('/api/spooler/stop', { method: 'POST' });
+      await fetch('/api/spooler/stop', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port: portToStop })
+      });
     } catch (e) {
       console.error('Failed to stop spooling', e);
     }
   };
 
-  const handleToggle = (checked: boolean) => {
-    setLocalAutoReconnect(checked);
-    if (spoolerState.active) {
-      handleStart(checked);
-    }
-  };
+  const currentStatus = selectedTab ? spoolerStates[selectedTab] : null;
+  const currentLogs = selectedTab ? (logs[selectedTab] || []) : [];
 
   return (
     <div className="panel serial-panel">
-      <div className="panel-header dark-alt" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>Real-time Serial Log</h2>
-        <div className="spooler-controls" style={{ display: 'flex', gap: '15px', alignItems: 'center', fontSize: '13px' }}>
-          {spoolerState.logFile && spoolerState.active && (
-             <span style={{ fontFamily: 'monospace', opacity: 0.7 }} title={spoolerState.logFile}>
-               Output: {spoolerState.logFile.split('/').pop()}
-             </span>
+      <div className="serial-tabs">
+        {activePorts.map(port => (
+          <div 
+            key={port} 
+            className={`serial-tab ${selectedTab === port ? 'active' : ''} ${spoolerStates[port].status?.toLowerCase()}`}
+            onClick={() => setSelectedTab(port)}
+          >
+            <span className="tab-status-dot"></span>
+            <span className="tab-label">{port.split('/').pop()}</span>
+            <button className="tab-close" onClick={(e) => { e.stopPropagation(); handleStop(port); }}>×</button>
+          </div>
+        ))}
+        <div className="tab-adder">
+          <select 
+            value={pendingPort} 
+            onChange={e => {
+              if (e.target.value) {
+                handleStart(e.target.value);
+              }
+            }}
+            className="adder-select"
+          >
+            <option value="">+</option>
+            {availablePorts.filter(p => !activePorts.includes(p.port)).map(p => (
+              <option key={p.port} value={p.port}>{p.description || p.port}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="panel-header dark-alt" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border-light)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <div className={`status-badge-inline ${currentStatus?.status?.toLowerCase() || 'idle'}`}>
+            <span className="dot"></span>
+            {currentStatus?.status || 'Idle'}
+          </div>
+        </div>
+        
+        <div className="spooler-controls" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+          {currentStatus?.active && (
+             <button onClick={() => handleStop(selectedTab)} className="btn-stop">Stop Session</button>
           )}
-          {activeWorkspace && !spoolerState.active && (
-             <span style={{ fontFamily: 'monospace', opacity: 0.5, maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={activeWorkspace}>
-               Target: {activeWorkspace.split('/').pop()}
-             </span>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <button onClick={fetchDevices} className="btn-refresh" title="Refresh Devices">🔄</button>
+        </div>
+      </div>
+
+      <div className="panel-content serial-content scrollable" onScroll={handleScroll}>
+        {activePorts.length === 0 ? (
+          <div className="empty-state-launcher">
+            <div className="launcher-icon">🔌</div>
+            <h3>No Active Port Monitor</h3>
+            <p>Select a device to start real-time logging</p>
             <select 
-              value={selectedPort} 
-              onChange={e => setSelectedPort(e.target.value)}
-              disabled={spoolerState.active}
-              style={{ background: '#333', color: 'white', border: '1px solid #444', borderRadius: '4px', padding: '2px 5px', maxWidth: '200px' }}
+              value="" 
+              onChange={e => {
+                if (e.target.value) handleStart(e.target.value);
+              }}
+              className="launcher-select"
             >
-              {availablePorts.length === 0 ? <option value="">No ports found</option> : null}
+              <option value="">Select a port...</option>
               {availablePorts.map(p => (
                 <option key={p.port} value={p.port}>{p.description || p.port}</option>
               ))}
             </select>
-            <button 
-              onClick={fetchDevices} 
-              disabled={spoolerState.active}
-              style={{ background: 'transparent', border: 'none', cursor: spoolerState.active ? 'default' : 'pointer', color: '#ccc' }} 
-              title="Refresh Ports"
-            >
-              🔄
-            </button>
+            <button onClick={fetchDevices} className="launcher-refresh">Refresh Device List</button>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
-            <input 
-              type="checkbox" 
-              checked={localAutoReconnect} 
-              onChange={e => handleToggle(e.target.checked)} 
-            />
-            Auto-Restart
-          </label>
-          {spoolerState.active ? (
-             <button onClick={handleStop} style={{ padding: '4px 12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Stop</button>
-          ) : (
-             <button title={lockState?.isLocked ? "Hardware locked by automated process" : ""} disabled={lockState?.isLocked} onClick={() => handleStart()} style={{ padding: '4px 12px', background: lockState?.isLocked ? '#444' : '#2ecc71', color: lockState?.isLocked ? '#888' : '#111', border: 'none', borderRadius: '4px', cursor: lockState?.isLocked ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>Start Spooling</button>
-          )}
-        </div>
-      </div>
-      <div className="panel-content serial-content scrollable" onScroll={handleScroll}>
-        {logs.length === 0 ? (
-          <div className="empty-state">No serial data streams active...</div>
         ) : (
           <div className="serial-lines">
-            {logs.map((log, i) => (
-              <div key={i} className="serial-line">
-                <span className="log-prefix">[{new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}]</span>
-                <span className="log-text">{log.data}</span>
-              </div>
-            ))}
+            {!selectedTab ? (
+               <div className="empty-state">Select a tab to view logs</div>
+            ) : currentLogs.length === 0 ? (
+               <div className="empty-state">Waiting for data on {selectedTab}...</div>
+            ) : (
+              currentLogs.map((log, i) => (
+                <div key={i} className="serial-line">
+                  <span className="log-prefix">[{new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}]</span>
+                  <span className="log-text">{log.data}</span>
+                </div>
+              ))
+            )}
             <div ref={bottomRef} />
           </div>
         )}
       </div>
+      {currentStatus?.logFile && (
+        <div className="serial-footer">
+          <span className="footer-label">Logging to:</span>
+          <span className="footer-value" title={currentStatus.logFile}>{currentStatus.logFile}</span>
+        </div>
+      )}
     </div>
   );
 };

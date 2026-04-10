@@ -1,7 +1,7 @@
 /**
  * In-Memory Serial Port Management.
  * Singleton tracking tty port states across operations.
- * 
+ *
  * Provides:
  * - SerialManager: Singleton class to lock/unlock serial ports during operations
  * - serialManager: Default exported instance
@@ -32,7 +32,9 @@ export class SerialManager {
    */
   public lockPort(port: string): void {
     if (this.activeLocks.get(port)) {
-      throw new Error(`PortBusy: ${port} is currently locked by another process.`);
+      throw new Error(
+        `PortBusy: ${port} is currently locked by another process.`,
+      );
     }
     this.activeLocks.set(port, true);
   }

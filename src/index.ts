@@ -3,17 +3,17 @@
 /**
  * PlatformIO MCP Server Entry Point
  * A board-agnostic MCP server for embedded development with PlatformIO
- * 
+ *
  * Provides:
  * - Server: Defines and exposes all MCP tools for client interfacing.
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+} from "@modelcontextprotocol/sdk/types.js";
 
 // Import types and schemas
 import {
@@ -24,39 +24,47 @@ import {
   CleanProjectParamsSchema,
   UploadFirmwareParamsSchema,
   UploadFilesystemParamsSchema,
-
   SearchLibrariesParamsSchema,
   InstallLibraryParamsSchema,
   ListInstalledLibrariesParamsSchema,
   AcquireLockParamsSchema,
   ReleaseLockParamsSchema,
-} from './types.js';
+  QueryLogsParamsSchema,
+} from "./types.js";
 
 // Import tool functions
-import { listBoards, getBoardInfo } from './tools/boards.js';
-import { listDevices } from './tools/devices.js';
-import { initProject } from './tools/projects.js';
-import { buildProject, cleanProject } from './tools/build.js';
-import { uploadFirmware, uploadFilesystem } from './tools/upload.js';
-import { queryLogs, startSpoolingDaemon, stopSpoolingDaemon } from './tools/monitor.js';
-import { searchLibraries, installLibrary, listInstalledLibraries } from './tools/libraries.js';
-import { checkPlatformIOInstalled } from './platformio.js';
-import { formatPlatformIOError } from './utils/errors.js';
-import { startPortalServer } from './api/server.js';
-import { portalEvents } from './api/events.js';
-import { hardwareLockManager } from './utils/lock-manager.js';
+import { listBoards, getBoardInfo } from "./tools/boards.js";
+import { listDevices } from "./tools/devices.js";
+import { initProject } from "./tools/projects.js";
+import { buildProject, cleanProject } from "./tools/build.js";
+import { uploadFirmware, uploadFilesystem } from "./tools/upload.js";
+import {
+  queryLogs,
+  startSpoolingDaemon,
+  stopSpoolingDaemon,
+} from "./tools/monitor.js";
+import {
+  searchLibraries,
+  installLibrary,
+  listInstalledLibraries,
+} from "./tools/libraries.js";
+import { checkPlatformIOInstalled } from "./platformio.js";
+import { formatPlatformIOError } from "./utils/errors.js";
+import { startPortalServer } from "./api/server.js";
+import { portalEvents } from "./api/events.js";
+import { hardwareLockManager } from "./utils/lock-manager.js";
 
 // Create server instance
 const server = new Server(
   {
-    name: 'platformio-mcp-server',
-    version: '1.0.0',
+    name: "platformio-mcp-server",
+    version: "1.0.0",
   },
   {
     capabilities: {
       tools: {},
     },
-  }
+  },
 );
 
 // List available tools
@@ -64,296 +72,356 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: 'list_boards',
-        description: 'Lists all available PlatformIO boards with optional filtering by platform, framework, or MCU. Supports 1000+ boards across 30+ platforms.',
+        name: "list_boards",
+        description:
+          "Lists all available PlatformIO boards with optional filtering by platform, framework, or MCU. Supports 1000+ boards across 30+ platforms.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             filter: {
-              type: 'string',
-              description: 'Optional filter by platform (e.g., "espressif32"), framework (e.g., "arduino"), or MCU name',
+              type: "string",
+              description:
+                'Optional filter by platform (e.g., "espressif32"), framework (e.g., "arduino"), or MCU name',
             },
           },
         },
       },
       {
-        name: 'get_board_info',
-        description: 'Gets detailed information about a specific board including MCU, frequency, flash, RAM, and supported frameworks.',
+        name: "get_board_info",
+        description:
+          "Gets detailed information about a specific board including MCU, frequency, flash, RAM, and supported frameworks.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             boardId: {
-              type: 'string',
-              description: 'Board ID (e.g., "esp32dev", "uno", "nucleo_f401re")',
+              type: "string",
+              description:
+                'Board ID (e.g., "esp32dev", "uno", "nucleo_f401re")',
             },
           },
-          required: ['boardId'],
+          required: ["boardId"],
         },
       },
       {
-        name: 'list_devices',
-        description: 'Lists all connected serial devices that can be used for firmware upload and monitoring.',
+        name: "list_devices",
+        description:
+          "Lists all connected serial devices that can be used for firmware upload and monitoring.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {},
         },
       },
       {
-        name: 'init_project',
-        description: 'Initializes a new PlatformIO project with the specified board and optional framework. Creates project structure with src/, include/, lib/, and test/ directories.',
+        name: "init_project",
+        description:
+          "Initializes a new PlatformIO project with the specified board and optional framework. Creates project structure with src/, include/, lib/, and test/ directories.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             board: {
-              type: 'string',
-              description: 'Board ID for the project',
+              type: "string",
+              description: "Board ID for the project",
             },
             framework: {
-              type: 'string',
-              description: 'Optional framework (e.g., "arduino", "espidf", "mbed")',
+              type: "string",
+              description:
+                'Optional framework (e.g., "arduino", "espidf", "mbed")',
             },
             projectDir: {
-              type: 'string',
-              description: 'Directory path where the project should be created',
+              type: "string",
+              description: "Directory path where the project should be created",
             },
             platformOptions: {
-              type: 'object',
-              description: 'Optional platform-specific configuration options',
+              type: "object",
+              description: "Optional platform-specific configuration options",
             },
           },
-          required: ['board', 'projectDir'],
+          required: ["board", "projectDir"],
         },
       },
       {
-        name: 'build_project',
-        description: 'Compiles the project source code and generates firmware binary. Automatically downloads required toolchains and libraries on first build.',
+        name: "build_project",
+        description:
+          "Compiles the project source code and generates firmware binary. Automatically downloads required toolchains and libraries on first build.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             projectDir: {
-              type: 'string',
-              description: 'Path to the PlatformIO project directory',
+              type: "string",
+              description: "Path to the PlatformIO project directory",
             },
             environment: {
-              type: 'string',
-              description: 'Optional specific environment to build from platformio.ini',
+              type: "string",
+              description:
+                "Optional specific environment to build from platformio.ini",
             },
             sessionId: {
-              type: 'string',
-              description: 'Agent session ID for pipeline lock validation',
+              type: "string",
+              description: "Agent session ID for pipeline lock validation",
             },
           },
-          required: ['projectDir'],
+          required: ["projectDir"],
         },
       },
       {
-        name: 'clean_project',
-        description: 'Removes build artifacts and compiled files from the project.',
+        name: "clean_project",
+        description:
+          "Removes build artifacts and compiled files from the project.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             projectDir: {
-              type: 'string',
-              description: 'Path to the PlatformIO project directory',
+              type: "string",
+              description: "Path to the PlatformIO project directory",
             },
             sessionId: {
-              type: 'string',
-              description: 'Agent session ID for pipeline lock validation',
+              type: "string",
+              description: "Agent session ID for pipeline lock validation",
             },
           },
-          required: ['projectDir'],
+          required: ["projectDir"],
         },
       },
       {
-        name: 'upload_filesystem',
-        description: 'Builds and uploads a SPIFFS/LittleFS filesystem image to the connected device. Automatically builds if necessary. Supports automatic port detection.',
+        name: "upload_filesystem",
+        description:
+          "Builds and uploads a SPIFFS/LittleFS filesystem image to the connected device. Automatically builds if necessary. Supports automatic port detection.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             projectDir: {
-              type: 'string',
-              description: 'Path to the PlatformIO project directory',
+              type: "string",
+              description: "Path to the PlatformIO project directory",
             },
             port: {
-              type: 'string',
-              description: 'Optional upload port (auto-detected if not specified)',
+              type: "string",
+              description:
+                "Optional upload port (auto-detected if not specified)",
             },
             environment: {
-              type: 'string',
-              description: 'Optional specific environment from platformio.ini',
+              type: "string",
+              description: "Optional specific environment from platformio.ini",
             },
             sessionId: {
-              type: 'string',
-              description: 'Agent session ID for pipeline lock validation',
+              type: "string",
+              description: "Agent session ID for pipeline lock validation",
             },
             verbose: {
-              type: 'boolean',
-              description: 'If true, returns the complete verbose upload log in the result instead of truncating it',
-            },
-            skipBuild: {
-              type: 'boolean',
-              description: 'If true, skips the compilation phase and directly flashes the existing build cache',
+              type: "boolean",
+              description:
+                "If true, returns the complete verbose upload log in the result instead of truncating it",
             },
             startSpoolingAfter: {
-              type: 'boolean',
-              description: 'If true, forces the background spooler tracking to start automatically after the flash completes',
+              type: "boolean",
+              description:
+                "If true, forces the background spooler tracking to start automatically after the flash completes",
             },
           },
-          required: ['projectDir'],
+          required: ["projectDir"],
         },
       },
       {
-        name: 'upload_firmware',
-        description: 'Uploads compiled firmware to a connected device. Automatically builds if necessary. Supports automatic port detection.',
+        name: "upload_firmware",
+        description:
+          "Uploads compiled firmware to a connected device. Automatically builds if necessary. Supports automatic port detection.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             projectDir: {
-              type: 'string',
-              description: 'Path to the PlatformIO project directory',
+              type: "string",
+              description: "Path to the PlatformIO project directory",
             },
             port: {
-              type: 'string',
-              description: 'Optional upload port (auto-detected if not specified)',
+              type: "string",
+              description:
+                "Optional upload port (auto-detected if not specified)",
             },
             environment: {
-              type: 'string',
-              description: 'Optional specific environment from platformio.ini',
+              type: "string",
+              description: "Optional specific environment from platformio.ini",
             },
             sessionId: {
-              type: 'string',
-              description: 'Agent session ID for pipeline lock validation',
+              type: "string",
+              description: "Agent session ID for pipeline lock validation",
             },
             verbose: {
-              type: 'boolean',
-              description: 'If true, returns the complete verbose upload log in the result instead of truncating it',
-            },
-            skipBuild: {
-              type: 'boolean',
-              description: 'If true, skips the compilation phase and directly flashes the existing build cache',
+              type: "boolean",
+              description:
+                "If true, returns the complete verbose upload log in the result instead of truncating it",
             },
             startSpoolingAfter: {
-              type: 'boolean',
-              description: 'If true, forces the background spooler tracking to start automatically after the flash completes',
+              type: "boolean",
+              description:
+                "If true, forces the background spooler tracking to start automatically after the flash completes",
             },
           },
-          required: ['projectDir'],
+          required: ["projectDir"],
         },
       },
       {
-        name: 'query_logs',
-        description: 'Scans the latest active background serial trace spool, returning a filtered string block.',
+        name: "query_logs",
+        description:
+          "Scans the latest active background serial trace spool, returning a filtered string block.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            lines: { type: 'number', description: 'Fetch this many tail lines from the end of the log (default: 100)' },
-            searchPattern: { type: 'string', description: 'Optional Regex pattern to filter the spool for specific keywords.' },
-            projectDir: { type: 'string', description: 'Target project checkout to query local .log cache instead of global cache.' }
-          }
-        }
-      },
-      {
-        name: 'start_spooling',
-        description: 'Manually start or restart the background serial-to-disk spooler for a specific device.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            port: { type: 'string', description: 'Optional COM path. Falls back to default.' },
-            baud: { type: 'number', description: 'Optional baud rate.' },
-            projectDir: { type: 'string', description: 'Target project boundary to deposit raw hardware logs into instead of the global server cache.' },
-            sessionId: { type: 'string', description: 'Agent session ID for pipeline lock validation' }
-          }
-        }
-      },
-      {
-        name: 'stop_spooling',
-        description: 'Kills the active background serial listener and unlocks the UART.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            port: { type: 'string', description: 'COM port to stop listening on.' },
-            sessionId: { type: 'string', description: 'Agent session ID for pipeline lock validation' }
+            lines: {
+              type: "number",
+              description:
+                "Fetch this many tail lines from the end of the log (default: 100)",
+            },
+            searchPattern: {
+              type: "string",
+              description:
+                "Optional Regex pattern to filter the spool for specific keywords.",
+            },
+            projectDir: {
+              type: "string",
+              description:
+                "Target project checkout to query local .log cache instead of global cache.",
+            },
+            port: {
+              type: "string",
+              description: "Specific COM port to query logs for.",
+            },
           },
-          required: ['port']
-        }
+        },
       },
       {
-        name: 'acquire_lock',
-        description: 'Explicitly claim the hardware queue lock for multi-step tasks. Throws if already held.',
+        name: "start_spooling",
+        description:
+          "Manually start or restart the background serial-to-disk spooler for a specific device.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            sessionId: { type: 'string', description: 'Your active Session ID' },
-            reason: { type: 'string', description: 'Reason for locking' }
+            port: {
+              type: "string",
+              description: "Optional COM path. Falls back to default.",
+            },
+            baud: { type: "number", description: "Optional baud rate." },
+            projectDir: {
+              type: "string",
+              description:
+                "Target project boundary to deposit raw hardware logs into instead of the global server cache.",
+            },
+            sessionId: {
+              type: "string",
+              description: "Agent session ID for pipeline lock validation",
+            },
           },
-          required: ['sessionId']
-        }
+        },
       },
       {
-        name: 'release_lock',
-        description: 'Release the explicit queue lock matching your session ID.',
+        name: "stop_spooling",
+        description:
+          "Kills the active background serial listener and unlocks the UART.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
-            sessionId: { type: 'string', description: 'Your active Session ID' }
+            port: {
+              type: "string",
+              description: "COM port to stop listening on.",
+            },
+            sessionId: {
+              type: "string",
+              description: "Agent session ID for pipeline lock validation",
+            },
           },
-          required: ['sessionId']
-        }
+          required: ["port"],
+        },
       },
       {
-        name: 'get_lock_status',
-        description: 'Reveals who currently owns the hardware queue lock.',
-        inputSchema: { type: 'object', properties: {} }
-      },
-      {
-        name: 'search_libraries',
-        description: 'Searches the PlatformIO library registry for available libraries by name, keywords, or description.',
+        name: "acquire_lock",
+        description:
+          "Explicitly claim the hardware queue lock for multi-step tasks. Throws if already held.",
         inputSchema: {
-          type: 'object',
+          type: "object",
+          properties: {
+            sessionId: {
+              type: "string",
+              description: "Your active Session ID",
+            },
+            reason: { type: "string", description: "Reason for locking" },
+          },
+          required: ["sessionId"],
+        },
+      },
+      {
+        name: "release_lock",
+        description:
+          "Release the explicit queue lock matching your session ID.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sessionId: {
+              type: "string",
+              description: "Your active Session ID",
+            },
+          },
+          required: ["sessionId"],
+        },
+      },
+      {
+        name: "get_lock_status",
+        description: "Reveals who currently owns the hardware queue lock.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "search_libraries",
+        description:
+          "Searches the PlatformIO library registry for available libraries by name, keywords, or description.",
+        inputSchema: {
+          type: "object",
           properties: {
             query: {
-              type: 'string',
-              description: 'Search query (library name, keyword, or description)',
+              type: "string",
+              description:
+                "Search query (library name, keyword, or description)",
             },
             limit: {
-              type: 'number',
-              description: 'Maximum number of results (default: 20)',
+              type: "number",
+              description: "Maximum number of results (default: 20)",
             },
           },
-          required: ['query'],
+          required: ["query"],
         },
       },
       {
-        name: 'install_library',
-        description: 'Installs a library from the PlatformIO registry either globally or to a specific project. Supports version specification.',
+        name: "install_library",
+        description:
+          "Installs a library from the PlatformIO registry either globally or to a specific project. Supports version specification.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             library: {
-              type: 'string',
-              description: 'Library name or ID to install',
+              type: "string",
+              description: "Library name or ID to install",
             },
             projectDir: {
-              type: 'string',
-              description: 'Optional project directory (installs globally if not specified)',
+              type: "string",
+              description:
+                "Optional project directory (installs globally if not specified)",
             },
             version: {
-              type: 'string',
-              description: 'Optional specific version (e.g., "1.0.0", "^2.1.0")',
+              type: "string",
+              description:
+                'Optional specific version (e.g., "1.0.0", "^2.1.0")',
             },
           },
-          required: ['library'],
+          required: ["library"],
         },
       },
       {
-        name: 'list_installed_libraries',
-        description: 'Lists all installed libraries either globally or for a specific project.',
+        name: "list_installed_libraries",
+        description:
+          "Lists all installed libraries either globally or for a specific project.",
         inputSchema: {
-          type: 'object',
+          type: "object",
           properties: {
             projectDir: {
-              type: 'string',
-              description: 'Optional project directory (lists global libraries if not specified)',
+              type: "string",
+              description:
+                "Optional project directory (lists global libraries if not specified)",
             },
           },
         },
@@ -368,201 +436,268 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const args: any = request.params.arguments || {};
   try {
     portalEvents.emitActivity(name, args || {}, true);
-    
+
     // Automatically intercept and broadcast workspace shifts
     if (args.projectDir) {
       portalEvents.emitWorkspaceState(args.projectDir);
     }
 
     switch (name) {
-      case 'list_boards': {
+      case "list_boards": {
         const params = ListBoardsParamsSchema.parse(args);
         const boards = await listBoards(params.filter);
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(boards, null, 2),
             },
           ],
         };
       }
 
-      case 'get_board_info': {
+      case "get_board_info": {
         const params = GetBoardInfoParamsSchema.parse(args);
         const board = await getBoardInfo(params.boardId);
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(board, null, 2),
             },
           ],
         };
       }
 
-      case 'list_devices': {
+      case "list_devices": {
         const devices = await listDevices();
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(devices, null, 2),
             },
           ],
         };
       }
 
-      case 'init_project': {
+      case "init_project": {
         const params = InitProjectParamsSchema.parse(args);
         const result = await initProject(params);
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2),
             },
           ],
         };
       }
 
-      case 'build_project': {
+      case "build_project": {
         const params = BuildProjectParamsSchema.parse(args);
-        
-        const executeTask = () => buildProject(params.projectDir, params.environment, params.verbose);
-        const result = params.sessionId 
-          ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
+
+        const executeTask = () =>
+          buildProject(params.projectDir, params.environment, params.verbose);
+        const result = params.sessionId
+          ? (hardwareLockManager.requireLock(params.sessionId),
+            await executeTask())
           : await hardwareLockManager.withImplicitLock(executeTask);
-          
+
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2),
             },
           ],
         };
       }
 
-      case 'clean_project': {
+      case "clean_project": {
         const params = CleanProjectParamsSchema.parse(args);
-        
+
         const executeTask = () => cleanProject(params.projectDir);
-        const result = params.sessionId 
-          ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
+        const result = params.sessionId
+          ? (hardwareLockManager.requireLock(params.sessionId),
+            await executeTask())
           : await hardwareLockManager.withImplicitLock(executeTask);
-          
+
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2),
             },
           ],
         };
       }
 
-      case 'upload_filesystem': {
+      case "upload_filesystem": {
         const params = UploadFilesystemParamsSchema.parse(args);
-        
-        const executeTask = () => uploadFilesystem(params.projectDir, params.port, params.environment, params.verbose, params.skipBuild, params.startSpoolingAfter);
-        const result = params.sessionId 
-          ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
+
+        const executeTask = () =>
+          uploadFilesystem(
+            params.projectDir,
+            params.port,
+            params.environment,
+            params.verbose,
+            params.startSpoolingAfter,
+          );
+        const result = params.sessionId
+          ? (hardwareLockManager.requireLock(params.sessionId),
+            await executeTask())
           : await hardwareLockManager.withImplicitLock(executeTask);
-          
+
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2),
             },
           ],
         };
       }
 
-      case 'upload_firmware': {
+      case "upload_firmware": {
         const params = UploadFirmwareParamsSchema.parse(args);
-        
-        const executeTask = () => uploadFirmware(params.projectDir, params.port, params.environment, params.verbose, params.skipBuild, params.startSpoolingAfter);
-        const result = params.sessionId 
-          ? (hardwareLockManager.requireLock(params.sessionId), await executeTask())
+
+        const executeTask = () =>
+          uploadFirmware(
+            params.projectDir,
+            params.port,
+            params.environment,
+            params.verbose,
+            params.startSpoolingAfter,
+          );
+        const result = params.sessionId
+          ? (hardwareLockManager.requireLock(params.sessionId),
+            await executeTask())
           : await hardwareLockManager.withImplicitLock(executeTask);
-          
+
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2),
             },
           ],
         };
       }
 
-      case 'query_logs': {
-        const result = await queryLogs(args.lines, args.searchPattern, args.projectDir);
+      case "query_logs": {
+        const params = QueryLogsParamsSchema.parse(args);
+        const result = await queryLogs(
+          params.lines,
+          params.searchPattern,
+          params.projectDir,
+          params.port,
+        );
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
-      case 'start_spooling': {
-        const executeTask = () => startSpoolingDaemon(args.port, args.baud, true, args.projectDir);
+      case "start_spooling": {
+        const executeTask = () =>
+          startSpoolingDaemon(args.port, args.baud, true, args.projectDir);
         const result = args.sessionId
-          ? (hardwareLockManager.requireLock(args.sessionId), await executeTask())
+          ? (hardwareLockManager.requireLock(args.sessionId),
+            await executeTask())
           : await hardwareLockManager.withImplicitLock(executeTask);
-          
+
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
-      case 'stop_spooling': {
-        const executeTask = async () => { stopSpoolingDaemon(args.port); return { success: true, message: `Terminated listener on ${args.port}` }; };
+      case "stop_spooling": {
+        const executeTask = async () => {
+          await stopSpoolingDaemon(args.port);
+          return {
+            success: true,
+            message: `Terminated listener on ${args.port}`,
+          };
+        };
         const result = args.sessionId
-          ? (hardwareLockManager.requireLock(args.sessionId), await executeTask())
+          ? (hardwareLockManager.requireLock(args.sessionId),
+            await executeTask())
           : await hardwareLockManager.withImplicitLock(executeTask);
-          
+
         return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
-      case 'acquire_lock': {
+      case "acquire_lock": {
         const params = AcquireLockParamsSchema.parse(args);
         hardwareLockManager.acquireLock(params.sessionId, params.reason);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'Hardware lock acquired explicitly.' }, null, 2) }]
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: "Hardware lock acquired explicitly.",
+                },
+                null,
+                2,
+              ),
+            },
+          ],
         };
       }
 
-      case 'release_lock': {
+      case "release_lock": {
         const params = ReleaseLockParamsSchema.parse(args);
         hardwareLockManager.releaseLock(params.sessionId);
         return {
-          content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'Hardware lock released explicitly.' }, null, 2) }]
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  message: "Hardware lock released explicitly.",
+                },
+                null,
+                2,
+              ),
+            },
+          ],
         };
       }
 
-      case 'get_lock_status': {
+      case "get_lock_status": {
         return {
-          content: [{ type: 'text', text: JSON.stringify(hardwareLockManager.getLockStatus(), null, 2) }]
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                hardwareLockManager.getLockStatus(),
+                null,
+                2,
+              ),
+            },
+          ],
         };
       }
 
-      case 'search_libraries': {
+      case "search_libraries": {
         const params = SearchLibrariesParamsSchema.parse(args);
         const libraries = await searchLibraries(params.query, params.limit);
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(libraries, null, 2),
             },
           ],
         };
       }
 
-      case 'install_library': {
+      case "install_library": {
         const params = InstallLibraryParamsSchema.parse(args);
         const result = await installLibrary(params.library, {
           projectDir: params.projectDir,
@@ -571,20 +706,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(result, null, 2),
             },
           ],
         };
       }
 
-      case 'list_installed_libraries': {
+      case "list_installed_libraries": {
         const params = ListInstalledLibrariesParamsSchema.parse(args);
         const libraries = await listInstalledLibraries(params.projectDir);
         return {
           content: [
             {
-              type: 'text',
+              type: "text",
               text: JSON.stringify(libraries, null, 2),
             },
           ],
@@ -596,11 +731,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   } catch (error) {
     const errorMessage = formatPlatformIOError(error);
-    portalEvents.emitActivity(request.params.name, request.params.arguments || {}, false);
+    portalEvents.emitActivity(
+      request.params.name,
+      request.params.arguments || {},
+      false,
+    );
     return {
       content: [
         {
-          type: 'text',
+          type: "text",
           text: `Error: ${errorMessage}`,
         },
       ],
@@ -614,8 +753,12 @@ async function main() {
   // Check if PlatformIO is installed
   const isInstalled = await checkPlatformIOInstalled();
   if (!isInstalled) {
-    console.error('Warning: PlatformIO CLI not found. Please install it from https://platformio.org/install/cli');
-    console.error('The server will start but commands will fail until PlatformIO is installed.\n');
+    console.error(
+      "Warning: PlatformIO CLI not found. Please install it from https://platformio.org/install/cli",
+    );
+    console.error(
+      "The server will start but commands will fail until PlatformIO is installed.\n",
+    );
   }
 
   const transport = new StdioServerTransport();
@@ -624,11 +767,11 @@ async function main() {
   // Start background portal server
   startPortalServer();
 
-  console.error('PlatformIO MCP Server running on stdio');
-  console.error('Server supports 1000+ boards across 30+ platforms');
+  console.error("PlatformIO MCP Server running on stdio");
+  console.error("Server supports 1000+ boards across 30+ platforms");
 }
 
 main().catch((error) => {
-  console.error('Fatal error:', error);
+  console.error("Fatal error:", error);
   process.exit(1);
 });

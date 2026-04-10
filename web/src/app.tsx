@@ -32,6 +32,7 @@ export type LogEvent = {
 
 export type SpoolerState = {
   active: boolean;
+  status: 'Idle' | 'Logging' | 'Flashing' | 'Connecting';
   port?: string;
   logFile?: string;
   autoReconnect: boolean;
@@ -47,8 +48,9 @@ function App() {
   const [status, setStatus] = useState<'online' | 'offline'>('offline');
   const [activities, setActivities] = useState<AgentEvent[]>([]);
   const [buildLogs, setBuildLogs] = useState<LogEvent[]>([]);
-  const [serialLogs, setSerialLogs] = useState<LogEvent[]>([]);
-  const [spoolerState, setSpoolerState] = useState<SpoolerState>({ active: false, autoReconnect: true });
+  const [buildLogFile, setBuildLogFile] = useState<string | null>(null);
+  const [serialLogs, setSerialLogs] = useState<Record<string, LogEvent[]>>({});
+  const [spoolerStates, setSpoolerStates] = useState<Record<string, SpoolerState>>({});
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null);
   const [lockState, setLockState] = useState<LockState>({ isLocked: false });
 
@@ -71,15 +73,29 @@ function App() {
       });
     });
 
+    socket.on('build_clear', (data: { logFile?: string }) => {
+      setBuildLogs([]);
+      setBuildLogFile(data.logFile || null);
+    });
+
+    socket.on('build_state', (data: { logFile?: string }) => {
+      setBuildLogFile(data.logFile || null);
+    });
+
     socket.on('serial_log', (data: LogEvent) => {
+      if (!data.port) return;
       setSerialLogs(prev => {
-        const next = [...prev, data];
-        return next.slice(-1000); // keep last 1000 lines
+        const portLogs = prev[data.port!] || [];
+        const next = [...portLogs, data];
+        return {
+          ...prev,
+          [data.port!]: next.slice(-1000) // keep last 1000 lines per port
+        };
       });
     });
 
-    socket.on('spooler_state', (data: SpoolerState) => {
-      setSpoolerState(data);
+    socket.on('spooler_states', (data: Record<string, SpoolerState>) => {
+      setSpoolerStates(data);
     });
 
     socket.on('workspace_state', (data: { projectDir: string }) => {
@@ -94,8 +110,10 @@ function App() {
       socket.off('server_status');
       socket.off('agent_activity');
       socket.off('build_log');
+      socket.off('build_clear');
+      socket.off('build_state');
       socket.off('serial_log');
-      socket.off('spooler_state');
+      socket.off('spooler_states');
       socket.off('workspace_state');
       socket.off('lock_state');
     };
@@ -119,8 +137,8 @@ function App() {
           <SettingsPanel status={status} socket={socket} lockState={lockState} />
         </div>
         <div className="grid-column right-column">
-          <BuildTerminal logs={buildLogs} />
-          <SerialLog logs={serialLogs} spoolerState={spoolerState} activeWorkspace={activeWorkspace} lockState={lockState} />
+          <BuildTerminal logs={buildLogs} logFile={buildLogFile || undefined} />
+          <SerialLog logs={serialLogs} spoolerStates={spoolerStates} activeWorkspace={activeWorkspace} lockState={lockState} />
         </div>
       </main>
     </div>

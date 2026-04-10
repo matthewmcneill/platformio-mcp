@@ -10,9 +10,10 @@ import { LogEvent } from '../app.js';
 
 interface Props {
   logs: LogEvent[];
+  logFile?: string;
 }
 
-const BuildTerminal: React.FC<Props> = ({ logs }) => {
+const BuildTerminal: React.FC<Props> = ({ logs, logFile }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isAutoScrollFastened, setIsAutoScrollFastened] = React.useState(true);
 
@@ -48,6 +49,12 @@ const BuildTerminal: React.FC<Props> = ({ logs }) => {
           </div>
         )}
       </div>
+      {logFile && (
+        <div className="serial-footer">
+          <span className="footer-label">Logging to:</span>
+          <span className="footer-value" title={logFile}>{logFile}</span>
+        </div>
+      )}
     </div>
   );
 };

@@ -46,6 +46,7 @@ pids/
 
 # Runtime data
 lib-cov/
+.locks/
 
 # Temporary files
 tmp/

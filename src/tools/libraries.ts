@@ -1,7 +1,7 @@
 /**
  * Library Registry Tools
  * Library management tools.
- * 
+ *
  * Provides:
  * - searchLibraries: Queries PlatformIO global registry.
  * - installLibrary: Resolves and installs dependency.
@@ -11,31 +11,42 @@
  * - getLibraryInfo: Resolves data for registry ID.
  */
 
-import { z } from 'zod';
-import { platformioExecutor } from '../platformio.js';
-import type { LibraryInfo, LibraryInstallResult } from '../types.js';
-import { LibrariesArraySchema, LibrariesObjectSchema, LibrarySearchResponseSchema } from '../types.js';
-import { validateLibraryName, validateVersion, validateProjectPath } from '../utils/validation.js';
-import { LibraryError, PlatformIOError } from '../utils/errors.js';
+import { z } from "zod";
+import { platformioExecutor } from "../platformio.js";
+import type { LibraryInfo, LibraryInstallResult } from "../types.js";
+import {
+  LibrariesArraySchema,
+  LibrariesObjectSchema,
+  LibrarySearchResponseSchema,
+} from "../types.js";
+import {
+  validateLibraryName,
+  validateVersion,
+  validateProjectPath,
+} from "../utils/validation.js";
+import { LibraryError, PlatformIOError } from "../utils/errors.js";
 
 /**
  * Searches for libraries in the PlatformIO registry.
- * 
+ *
  * @param query - The search query string for the registry.
  * @param limit - Optional maximum number of returned results.
  * @returns Array collection of available package metadata.
  */
-export async function searchLibraries(query: string, limit?: number): Promise<LibraryInfo[]> {
+export async function searchLibraries(
+  query: string,
+  limit?: number,
+): Promise<LibraryInfo[]> {
   if (!query || query.trim().length === 0) {
-    throw new LibraryError('Search query is required');
+    throw new LibraryError("Search query is required");
   }
 
   try {
     const result = await platformioExecutor.executeWithJsonOutput(
-      'lib',
-      ['search', query.trim()],
+      "lib",
+      ["search", query.trim()],
       LibrarySearchResponseSchema,
-      { timeout: 30000 }
+      { timeout: 30000 },
     );
 
     const items = result.items || [];
@@ -49,14 +60,14 @@ export async function searchLibraries(query: string, limit?: number): Promise<Li
   } catch (error) {
     throw new LibraryError(
       `Failed to search libraries with query '${query}': ${error}`,
-      { query }
+      { query },
     );
   }
 }
 
 /**
  * Installs a library (globally or to a specific project).
- * 
+ *
  * @param libraryName - Target dependency registry package string.
  * @param options - Version specification and project directory context.
  * @returns Library install operation success status context.
@@ -66,18 +77,22 @@ export async function installLibrary(
   options?: {
     projectDir?: string;
     version?: string;
-  }
+  },
 ): Promise<LibraryInstallResult> {
   if (!validateLibraryName(libraryName)) {
-    throw new LibraryError(`Invalid library name: ${libraryName}`, { libraryName });
+    throw new LibraryError(`Invalid library name: ${libraryName}`, {
+      libraryName,
+    });
   }
 
   if (options?.version && !validateVersion(options.version)) {
-    throw new LibraryError(`Invalid version format: ${options.version}`, { version: options.version });
+    throw new LibraryError(`Invalid version format: ${options.version}`, {
+      version: options.version,
+    });
   }
 
   try {
-    const args: string[] = ['lib', 'install'];
+    const args: string[] = ["lib", "install"];
 
     // Build library specification with optional version
     let librarySpec = libraryName;
@@ -93,19 +108,23 @@ export async function installLibrary(
       execOptions.cwd = validatedPath;
     }
 
-    const result = await platformioExecutor.execute('lib', ['install', librarySpec], execOptions);
+    const result = await platformioExecutor.execute(
+      "lib",
+      ["install", librarySpec],
+      execOptions,
+    );
 
     if (result.exitCode !== 0) {
       throw new LibraryError(
         `Failed to install library '${librarySpec}': ${result.stderr}`,
-        { library: librarySpec, stderr: result.stderr }
+        { library: librarySpec, stderr: result.stderr },
       );
     }
 
     return {
       success: true,
       library: libraryName,
-      message: `Successfully installed ${librarySpec}${options?.projectDir ? ' to project' : ' globally'}`,
+      message: `Successfully installed ${librarySpec}${options?.projectDir ? " to project" : " globally"}`,
     };
   } catch (error) {
     if (error instanceof LibraryError) {
@@ -113,18 +132,20 @@ export async function installLibrary(
     }
     throw new LibraryError(
       `Failed to install library '${libraryName}': ${error}`,
-      { libraryName, options }
+      { libraryName, options },
     );
   }
 }
 
 /**
  * Lists installed libraries (globally or for a specific project).
- * 
+ *
  * @param projectDir - Optional project workspace to retrieve local packages from.
  * @returns Details on present library entities.
  */
-export async function listInstalledLibraries(projectDir?: string): Promise<LibraryInfo[]> {
+export async function listInstalledLibraries(
+  projectDir?: string,
+): Promise<LibraryInfo[]> {
   try {
     const execOptions: { cwd?: string; timeout?: number } = { timeout: 30000 };
     if (projectDir) {
@@ -133,10 +154,10 @@ export async function listInstalledLibraries(projectDir?: string): Promise<Libra
     }
 
     const result = await platformioExecutor.executeWithJsonOutput(
-      'lib',
-      ['list'],
+      "lib",
+      ["list"],
       z.union([LibrariesArraySchema, LibrariesObjectSchema]),
-      execOptions
+      execOptions,
     );
 
     if (Array.isArray(result)) {
@@ -144,13 +165,13 @@ export async function listInstalledLibraries(projectDir?: string): Promise<Libra
     }
 
     const allLibs: LibraryInfo[] = [];
-    Object.values(result as Record<string, LibraryInfo[]>).forEach(libs => {
+    Object.values(result as Record<string, LibraryInfo[]>).forEach((libs) => {
       allLibs.push(...libs);
     });
 
     const uniqueLibs = new Map<string, LibraryInfo>();
     for (const lib of allLibs) {
-      const key = `${lib.name}@${lib.version || 'unknown'}`;
+      const key = `${lib.name}@${lib.version || "unknown"}`;
       if (!uniqueLibs.has(key)) {
         uniqueLibs.set(key, lib);
       }
@@ -161,31 +182,36 @@ export async function listInstalledLibraries(projectDir?: string): Promise<Libra
     // If no libraries are installed, return empty array
     if (error instanceof PlatformIOError) {
       const errorMessage = error.message.toLowerCase();
-      if (errorMessage.includes('no libraries') || errorMessage.includes('empty')) {
+      if (
+        errorMessage.includes("no libraries") ||
+        errorMessage.includes("empty")
+      ) {
         return [];
       }
     }
 
     throw new LibraryError(
-      `Failed to list installed libraries${projectDir ? ` for project at ${projectDir}` : ''}: ${error}`,
-      { projectDir }
+      `Failed to list installed libraries${projectDir ? ` for project at ${projectDir}` : ""}: ${error}`,
+      { projectDir },
     );
   }
 }
 
 /**
  * Uninstalls a library (globally or from a specific project).
- * 
+ *
  * @param libraryName - Identified registry name to remove.
  * @param projectDir - Optional directory workspace path specifying local target.
  * @returns Success completion status string payload.
  */
 export async function uninstallLibrary(
   libraryName: string,
-  projectDir?: string
+  projectDir?: string,
 ): Promise<{ success: boolean; message: string }> {
   if (!validateLibraryName(libraryName)) {
-    throw new LibraryError(`Invalid library name: ${libraryName}`, { libraryName });
+    throw new LibraryError(`Invalid library name: ${libraryName}`, {
+      libraryName,
+    });
   }
 
   try {
@@ -195,18 +221,22 @@ export async function uninstallLibrary(
       execOptions.cwd = validatedPath;
     }
 
-    const result = await platformioExecutor.execute('lib', ['uninstall', libraryName], execOptions);
+    const result = await platformioExecutor.execute(
+      "lib",
+      ["uninstall", libraryName],
+      execOptions,
+    );
 
     if (result.exitCode !== 0) {
       throw new LibraryError(
         `Failed to uninstall library '${libraryName}': ${result.stderr}`,
-        { library: libraryName, stderr: result.stderr }
+        { library: libraryName, stderr: result.stderr },
       );
     }
 
     return {
       success: true,
-      message: `Successfully uninstalled ${libraryName}${projectDir ? ' from project' : ' globally'}`,
+      message: `Successfully uninstalled ${libraryName}${projectDir ? " from project" : " globally"}`,
     };
   } catch (error) {
     if (error instanceof LibraryError) {
@@ -214,18 +244,20 @@ export async function uninstallLibrary(
     }
     throw new LibraryError(
       `Failed to uninstall library '${libraryName}': ${error}`,
-      { libraryName, projectDir }
+      { libraryName, projectDir },
     );
   }
 }
 
 /**
  * Updates installed libraries (globally or for a specific project).
- * 
+ *
  * @param projectDir - Associated project target space path.
  * @returns Success operation completion payload string metadata.
  */
-export async function updateLibraries(projectDir?: string): Promise<{ success: boolean; message: string }> {
+export async function updateLibraries(
+  projectDir?: string,
+): Promise<{ success: boolean; message: string }> {
   try {
     const execOptions: { cwd?: string; timeout?: number } = { timeout: 180000 };
     if (projectDir) {
@@ -233,44 +265,49 @@ export async function updateLibraries(projectDir?: string): Promise<{ success: b
       execOptions.cwd = validatedPath;
     }
 
-    const result = await platformioExecutor.execute('lib', ['update'], execOptions);
+    const result = await platformioExecutor.execute(
+      "lib",
+      ["update"],
+      execOptions,
+    );
 
     if (result.exitCode !== 0) {
-      throw new LibraryError(
-        `Failed to update libraries: ${result.stderr}`,
-        { stderr: result.stderr }
-      );
+      throw new LibraryError(`Failed to update libraries: ${result.stderr}`, {
+        stderr: result.stderr,
+      });
     }
 
     return {
       success: true,
-      message: `Successfully updated libraries${projectDir ? ' for project' : ' globally'}`,
+      message: `Successfully updated libraries${projectDir ? " for project" : " globally"}`,
     };
   } catch (error) {
     if (error instanceof LibraryError) {
       throw error;
     }
-    throw new LibraryError(
-      `Failed to update libraries: ${error}`,
-      { projectDir }
-    );
+    throw new LibraryError(`Failed to update libraries: ${error}`, {
+      projectDir,
+    });
   }
 }
 
 /**
  * Gets information about a specific library.
- * 
+ *
  * @param libraryNameOrId - Recognized registry label referencing a library.
  * @returns Deep introspection context about the provided library or null.
  */
-export async function getLibraryInfo(libraryNameOrId: string): Promise<LibraryInfo | null> {
+export async function getLibraryInfo(
+  libraryNameOrId: string,
+): Promise<LibraryInfo | null> {
   try {
     const results = await searchLibraries(libraryNameOrId, 50);
-    
+
     // Try to find exact match first
-    const exactMatch = results.find(lib => 
-      lib.name.toLowerCase() === libraryNameOrId.toLowerCase() ||
-      lib.id?.toString() === libraryNameOrId
+    const exactMatch = results.find(
+      (lib) =>
+        lib.name.toLowerCase() === libraryNameOrId.toLowerCase() ||
+        lib.id?.toString() === libraryNameOrId,
     );
 
     if (exactMatch) {
@@ -282,7 +319,7 @@ export async function getLibraryInfo(libraryNameOrId: string): Promise<LibraryIn
   } catch (error) {
     throw new LibraryError(
       `Failed to get library info for '${libraryNameOrId}': ${error}`,
-      { library: libraryNameOrId }
+      { library: libraryNameOrId },
     );
   }
 }

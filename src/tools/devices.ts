@@ -1,7 +1,7 @@
 /**
  * Device Discovery Tools
  * Device detection and listing tools.
- * 
+ *
  * Provides:
  * - listDevices: Discovers connected serial adapters.
  * - findDeviceByPort: Resolves device by path.
@@ -11,28 +11,28 @@
  * - findDevicesByHardwareId: Queries devices by internal identifier.
  */
 
-import { platformioExecutor } from '../platformio.js';
-import type { SerialDevice } from '../types.js';
-import { DevicesArraySchema } from '../types.js';
-import { PlatformIOError } from '../utils/errors.js';
-import { mapVidPidToBoard } from '../utils/hardware-maps.js';
+import { platformioExecutor } from "../platformio.js";
+import type { SerialDevice } from "../types.js";
+import { DevicesArraySchema } from "../types.js";
+import { PlatformIOError } from "../utils/errors.js";
+import { mapVidPidToBoard } from "../utils/hardware-maps.js";
 
 /**
  * Lists all connected serial devices.
- * 
+ *
  * @returns Array object denoting active and accessible COM interfaces.
  */
 export async function listDevices(): Promise<SerialDevice[]> {
   try {
-    const result = await platformioExecutor.executeWithJsonOutput(
-      'device',
-      ['list'],
+    const result = (await platformioExecutor.executeWithJsonOutput(
+      "device",
+      ["list"],
       DevicesArraySchema,
-      { timeout: 10000 }
-    ) as SerialDevice[];
+      { timeout: 10000 },
+    )) as SerialDevice[];
 
     // Enhance discovered devices with mapped board information
-    return result.map(device => {
+    return result.map((device) => {
       const detectedBoard = mapVidPidToBoard(device.hwid, device.description);
       if (detectedBoard) {
         return { ...device, detectedBoard };
@@ -44,51 +44,58 @@ export async function listDevices(): Promise<SerialDevice[]> {
     // Handle gracefully by returning empty array
     if (error instanceof PlatformIOError) {
       const errorMessage = error.message.toLowerCase();
-      if (errorMessage.includes('no devices') || errorMessage.includes('empty')) {
+      if (
+        errorMessage.includes("no devices") ||
+        errorMessage.includes("empty")
+      ) {
         return [];
       }
     }
-    
+
     throw new PlatformIOError(
       `Failed to list devices: ${error}`,
-      'LIST_DEVICES_FAILED'
+      "LIST_DEVICES_FAILED",
     );
   }
 }
 
 /**
  * Finds a device by port path.
- * 
+ *
  * @param port - Path or designation of the serial port to find.
  * @returns Connected device descriptor or null if disconnected.
  */
-export async function findDeviceByPort(port: string): Promise<SerialDevice | null> {
+export async function findDeviceByPort(
+  port: string,
+): Promise<SerialDevice | null> {
   const devices = await listDevices();
-  return devices.find(device => device.port === port) || null;
+  return devices.find((device) => device.port === port) || null;
 }
 
 /**
  * Gets the first available valid serial device (useful for auto-detection).
  * Prioritizes actual physical USB modems over noisy Mac Bluetooth stacks.
- * 
+ *
  * @returns Initially indexed verified device entry or null if none exist.
  */
 export async function getFirstDevice(): Promise<SerialDevice | null> {
   const devices = await listDevices();
   if (devices.length === 0) return null;
-  
+
   // Exclude native and secondary Bluetooth bridging drivers
-  const validDevices = devices.filter(d => {
+  const validDevices = devices.filter((d) => {
     const p = d.port.toLowerCase();
-    return !p.includes('bluetooth') && !p.includes('blth') && !p.includes('bose');
+    return (
+      !p.includes("bluetooth") && !p.includes("blth") && !p.includes("bose")
+    );
   });
-  
+
   return validDevices.length > 0 ? validDevices[0] : devices[0];
 }
 
 /**
  * Checks if any devices are connected.
- * 
+ *
  * @returns True if at least one serial device was discovered.
  */
 export async function hasConnectedDevices(): Promise<boolean> {
@@ -98,30 +105,34 @@ export async function hasConnectedDevices(): Promise<boolean> {
 
 /**
  * Lists devices filtered by description (useful for finding specific board types).
- * 
+ *
  * @param searchTerm - Keyword criteria to filter equipment details.
  * @returns Array collection of matched serial endpoints.
  */
-export async function findDevicesByDescription(searchTerm: string): Promise<SerialDevice[]> {
+export async function findDevicesByDescription(
+  searchTerm: string,
+): Promise<SerialDevice[]> {
   const devices = await listDevices();
   const searchLower = searchTerm.toLowerCase();
-  
-  return devices.filter(device => 
-    device.description.toLowerCase().includes(searchLower)
+
+  return devices.filter((device) =>
+    device.description.toLowerCase().includes(searchLower),
   );
 }
 
 /**
  * Lists devices filtered by hardware ID.
- * 
+ *
  * @param searchTerm - Identifier or string footprint present in HWID.
  * @returns Filtered subsets of devices bound by hardware signatures.
  */
-export async function findDevicesByHardwareId(searchTerm: string): Promise<SerialDevice[]> {
+export async function findDevicesByHardwareId(
+  searchTerm: string,
+): Promise<SerialDevice[]> {
   const devices = await listDevices();
   const searchLower = searchTerm.toLowerCase();
-  
-  return devices.filter(device => 
-    device.hwid.toLowerCase().includes(searchLower)
+
+  return devices.filter((device) =>
+    device.hwid.toLowerCase().includes(searchLower),
   );
 }

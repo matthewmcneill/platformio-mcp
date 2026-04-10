@@ -1,7 +1,7 @@
 /**
  * Global Type Definitions
  * Type definitions and Zod schemas for PlatformIO MCP Server.
- * 
+ *
  * Provides:
  * - CommandResult: Execution stdout/stderr schema.
  * - BoardInfo: Detailed board specification parameters.
@@ -13,8 +13,8 @@
  * - LibraryInfo: PlatformIO registry library metadata.
  */
 
-import { z } from 'zod';
-import type { DiagnosticSummary } from './utils/diagnostics.js';
+import { z } from "zod";
+import type { DiagnosticSummary } from "./utils/diagnostics.js";
 
 // ============================================================================
 // Command Result Types
@@ -95,7 +95,7 @@ export interface ProjectConfig {
 }
 
 export const ProjectConfigSchema = z.object({
-  board: z.string().min(1, 'Board ID is required'),
+  board: z.string().min(1, "Board ID is required"),
   framework: z.string().optional(),
   projectDir: z.string().optional(),
   platformOptions: z.record(z.string(), z.string()).optional(),
@@ -137,7 +137,7 @@ export interface UploadConfig {
 }
 
 export const UploadConfigSchema = z.object({
-  projectDir: z.string().min(1, 'Project directory is required'),
+  projectDir: z.string().min(1, "Project directory is required"),
   port: z.string().optional(),
   environment: z.string().optional(),
 });
@@ -213,7 +213,7 @@ export const LibraryInfoSchema = z.object({
         name: z.string(),
         email: z.string().optional(),
         maintainer: z.boolean().optional(),
-      })
+      }),
     )
     .optional(),
   repository: z
@@ -229,7 +229,10 @@ export const LibraryInfoSchema = z.object({
 });
 
 export const LibrariesArraySchema = z.array(LibraryInfoSchema);
-export const LibrariesObjectSchema = z.record(z.string(), z.array(LibraryInfoSchema));
+export const LibrariesObjectSchema = z.record(
+  z.string(),
+  z.array(LibraryInfoSchema),
+);
 
 export const LibrarySearchResponseSchema = z.object({
   searchQuery: z.string().optional(),
@@ -244,7 +247,7 @@ export interface LibrarySearchConfig {
 }
 
 export const LibrarySearchConfigSchema = z.object({
-  query: z.string().min(1, 'Search query is required'),
+  query: z.string().min(1, "Search query is required"),
   limit: z.number().positive().optional(),
 });
 
@@ -255,7 +258,7 @@ export interface LibraryInstallConfig {
 }
 
 export const LibraryInstallConfigSchema = z.object({
-  library: z.string().min(1, 'Library name is required'),
+  library: z.string().min(1, "Library name is required"),
   projectDir: z.string().optional(),
   version: z.string().optional(),
 });
@@ -287,91 +290,218 @@ export interface PlatformInfo {
 
 // List boards parameters
 export const ListBoardsParamsSchema = z.object({
-  filter: z.string().optional().describe('Optional filter by platform, framework, or MCU'),
+  filter: z
+    .string()
+    .optional()
+    .describe("Optional filter by platform, framework, or MCU"),
 });
 
 // Hardware Lock parameters
 export const AcquireLockParamsSchema = z.object({
-  sessionId: z.string().min(1).describe('Unique ID of the agent session acquiring the lock for a multi-step pipeline'),
-  reason: z.string().optional().describe('Reason for acquiring the lock (e.g., Task Name)'),
+  sessionId: z
+    .string()
+    .min(1)
+    .describe(
+      "Unique ID of the agent session acquiring the lock for a multi-step pipeline",
+    ),
+  reason: z
+    .string()
+    .optional()
+    .describe("Reason for acquiring the lock (e.g., Task Name)"),
 });
 
 export const ReleaseLockParamsSchema = z.object({
-  sessionId: z.string().min(1).describe('Unique ID of the agent session releasing the lock'),
+  sessionId: z
+    .string()
+    .min(1)
+    .describe("Unique ID of the agent session releasing the lock"),
 });
 
 // Get board info parameters
 export const GetBoardInfoParamsSchema = z.object({
-  boardId: z.string().min(1).describe('Board ID to retrieve information for'),
+  boardId: z.string().min(1).describe("Board ID to retrieve information for"),
 });
 
 // Init project parameters
 export const InitProjectParamsSchema = z.object({
-  board: z.string().min(1).describe('Board ID for the project'),
-  framework: z.string().optional().describe('Framework to use (e.g., arduino, espidf)'),
-  projectDir: z.string().describe('Directory path where the project should be created'),
-  platformOptions: z.record(z.string(), z.string()).optional().describe('Additional platform-specific options'),
+  board: z.string().min(1).describe("Board ID for the project"),
+  framework: z
+    .string()
+    .optional()
+    .describe("Framework to use (e.g., arduino, espidf)"),
+  projectDir: z
+    .string()
+    .describe("Directory path where the project should be created"),
+  platformOptions: z
+    .record(z.string(), z.string())
+    .optional()
+    .describe("Additional platform-specific options"),
 });
 
 // Build project parameters
 export const BuildProjectParamsSchema = z.object({
-  projectDir: z.string().min(1).describe('Path to the PlatformIO project directory'),
-  environment: z.string().optional().describe('Specific environment to build (from platformio.ini)'),
-  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
-  verbose: z.boolean().optional().describe('If true, returns the complete verbose build log in the result instead of truncating it on success'),
+  projectDir: z
+    .string()
+    .min(1)
+    .describe("Path to the PlatformIO project directory"),
+  environment: z
+    .string()
+    .optional()
+    .describe("Specific environment to build (from platformio.ini)"),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Agent session ID for pipeline lock validation"),
+  verbose: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, returns the complete verbose build log in the result instead of truncating it on success",
+    ),
 });
 
 // Clean project parameters
 export const CleanProjectParamsSchema = z.object({
-  projectDir: z.string().min(1).describe('Path to the PlatformIO project directory'),
-  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
+  projectDir: z
+    .string()
+    .min(1)
+    .describe("Path to the PlatformIO project directory"),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Agent session ID for pipeline lock validation"),
 });
 
 // Upload firmware parameters
 export const UploadFirmwareParamsSchema = z.object({
-  projectDir: z.string().min(1).describe('Path to the PlatformIO project directory'),
-  port: z.string().optional().describe('Upload port (auto-detected if not specified)'),
-  environment: z.string().optional().describe('Specific environment to upload (from platformio.ini)'),
-  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
-  verbose: z.boolean().optional().describe('If true, returns the complete verbose upload log in the result instead of truncating it'),
-  skipBuild: z.boolean().optional().describe('If true, skips the compilation phase and directly flashes the existing build cache'),
-  startSpoolingAfter: z.boolean().optional().describe('If true, forces the background spooler tracking to start automatically after the flash completes'),
+  projectDir: z
+    .string()
+    .min(1)
+    .describe("Path to the PlatformIO project directory"),
+  port: z
+    .string()
+    .optional()
+    .describe("Upload port (auto-detected if not specified)"),
+  environment: z
+    .string()
+    .optional()
+    .describe("Specific environment to upload (from platformio.ini)"),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Agent session ID for pipeline lock validation"),
+  verbose: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, returns the complete verbose upload log in the result instead of truncating it",
+    ),
+  startSpoolingAfter: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, forces the background spooler tracking to start automatically after the flash completes",
+    ),
 });
 
 // Upload filesystem parameters
 export const UploadFilesystemParamsSchema = z.object({
-  projectDir: z.string().min(1).describe('Path to the PlatformIO project directory'),
-  port: z.string().optional().describe('Upload port (auto-detected if not specified)'),
-  environment: z.string().optional().describe('Specific environment to upload (from platformio.ini)'),
-  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
-  verbose: z.boolean().optional().describe('If true, returns the complete verbose upload log in the result instead of truncating it'),
-  skipBuild: z.boolean().optional().describe('If true, skips the compilation phase and directly flashes the existing build cache'),
-  startSpoolingAfter: z.boolean().optional().describe('If true, forces the background spooler tracking to start automatically after the flash completes'),
+  projectDir: z
+    .string()
+    .min(1)
+    .describe("Path to the PlatformIO project directory"),
+  port: z
+    .string()
+    .optional()
+    .describe("Upload port (auto-detected if not specified)"),
+  environment: z
+    .string()
+    .optional()
+    .describe("Specific environment to upload (from platformio.ini)"),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Agent session ID for pipeline lock validation"),
+  verbose: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, returns the complete verbose upload log in the result instead of truncating it",
+    ),
+  startSpoolingAfter: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, forces the background spooler tracking to start automatically after the flash completes",
+    ),
 });
 
 // Start monitor parameters
 export const StartMonitorParamsSchema = z.object({
-  port: z.string().optional().describe('Serial port to monitor (auto-detected if not specified)'),
-  baud: z.number().optional().describe('Baud rate for serial communication'),
-  projectDir: z.string().optional().describe('Project directory (for environment-specific settings)'),
-  durationSeconds: z.number().optional().describe('Duration to read from the serial port in seconds'),
-  sessionId: z.string().optional().describe('Agent session ID for pipeline lock validation'),
+  port: z
+    .string()
+    .optional()
+    .describe("Serial port to monitor (auto-detected if not specified)"),
+  baud: z.number().optional().describe("Baud rate for serial communication"),
+  projectDir: z
+    .string()
+    .optional()
+    .describe("Project directory (for environment-specific settings)"),
+  durationSeconds: z
+    .number()
+    .optional()
+    .describe("Duration to read from the serial port in seconds"),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Agent session ID for pipeline lock validation"),
 });
 
 // Search libraries parameters
 export const SearchLibrariesParamsSchema = z.object({
-  query: z.string().min(1).describe('Search query for libraries'),
-  limit: z.number().optional().default(20).describe('Maximum number of results to return'),
+  query: z.string().min(1).describe("Search query for libraries"),
+  limit: z
+    .number()
+    .optional()
+    .default(20)
+    .describe("Maximum number of results to return"),
 });
 
 // Install library parameters
 export const InstallLibraryParamsSchema = z.object({
-  library: z.string().min(1).describe('Library name or ID to install'),
-  projectDir: z.string().optional().describe('Project directory (installs globally if not specified)'),
-  version: z.string().optional().describe('Specific version to install'),
+  library: z.string().min(1).describe("Library name or ID to install"),
+  projectDir: z
+    .string()
+    .optional()
+    .describe("Project directory (installs globally if not specified)"),
+  version: z.string().optional().describe("Specific version to install"),
 });
 
 // List installed libraries parameters
 export const ListInstalledLibrariesParamsSchema = z.object({
-  projectDir: z.string().optional().describe('Project directory (lists global libraries if not specified)'),
+  projectDir: z
+    .string()
+    .optional()
+    .describe("Project directory (lists global libraries if not specified)"),
+});
+
+// Query logs parameters
+export const QueryLogsParamsSchema = z.object({
+  lines: z
+    .number()
+    .optional()
+    .default(100)
+    .describe("Fetch this many tail lines from the end of the log"),
+  searchPattern: z
+    .string()
+    .optional()
+    .describe("Optional Regex pattern to filter the spool for specific keywords."),
+  projectDir: z
+    .string()
+    .optional()
+    .describe("Target project checkout to query local .log cache."),
+  port: z
+    .string()
+    .optional()
+    .describe("Specific COM port to query logs for."),
 });
