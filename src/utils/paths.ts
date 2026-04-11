@@ -1,3 +1,16 @@
+/**
+ * Project Path and Directory Management
+ * Constants and helpers for managing the local server and project filesystem structure.
+ *
+ * Provides:
+ * - PROJECT_ROOT: Resolution for the server install directory.
+ * - LOCKS_DIR: Location for physical UART semaphore files.
+ * - LOGS_DIR: Location for build and serial monitor trace files.
+ * - ensureDir: Generic directory creation helper.
+ * - ensureLocksDir: Specific helper for internal locks.
+ * - sanitizePortName: Filename-safe transformation for serial paths.
+ */
+
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";

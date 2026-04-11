@@ -15,33 +15,45 @@ import SettingsPanel from './components/settings-panel.js';
 // Connect to the background PIO local express server
 const socket: Socket = io(window.location.origin.includes('localhost:5173') ? 'http://localhost:8080' : '/');
 
+/**
+ * Event representing a tool execution by an agent.
+ */
 export type AgentEvent = {
-  timestamp: number;
-  toolName: string;
-  args: Record<string, any>;
-  success: boolean;
+  timestamp: number; // High-resolution timestamp of the activity
+  toolName: string; // Name of the MCP tool invoked
+  args: Record<string, any>; // Input parameters provided by the agent
+  success: boolean; // Execution status
 };
 
+/**
+ * Event representing a line of output from build or serial streams.
+ */
 export type LogEvent = {
-  timestamp: number;
-  projectId?: string;
-  port?: string;
-  logLine?: string;
-  data?: string;
+  timestamp: number; // High-resolution timestamp of the log line
+  projectId?: string; // Target project identifier (for build logs)
+  port?: string; // TTY port identifier (for serial logs)
+  logLine?: string; // Content of the build log line
+  data?: string; // Content of the serial log line
 };
 
+/**
+ * Current runtime state of a background serial spooler.
+ */
 export type SpoolerState = {
-  active: boolean;
-  status: 'Idle' | 'Logging' | 'Flashing' | 'Connecting';
-  port?: string;
-  logFile?: string;
-  autoReconnect: boolean;
+  active: boolean; // Indicates if the spooler is actively running
+  status: 'Idle' | 'Logging' | 'Flashing' | 'Connecting'; // Logical connection status
+  port?: string; // Bound serial port path
+  logFile?: string; // Current active log file path
+  autoReconnect: boolean; // Indicates if auto-recovery is enabled
 };
 
+/**
+ * Global mutex state for the physical hardware pipeline.
+ */
 export type LockState = {
-  isLocked: boolean;
-  sessionId?: string;
-  reason?: string;
+  isLocked: boolean; // Indicates if the hardware is currently reserved
+  sessionId?: string; // Identifier of the session holding the lock
+  reason?: string; // Human-readable reason for the lock
 };
 
 function App() {

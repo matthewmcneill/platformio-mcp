@@ -68,15 +68,29 @@ For important constants, types, schemas, or variables defined at the module scop
 // Default timeout for commands (5 minutes for builds)
 const DEFAULT_TIMEOUT = 300000;
 
+---
+
+## 4. Type and Interface Properties
+
+For properties within exported interfaces or type aliases, prefer using single-line trailing `//` comments instead of multiline JSDoc blocks. This keeps complex data shapes compact and easy to scan. The main interface or type declaration should still use a JSDoc block.
+
+### Example:
+```typescript
 /**
- * Zod schema for validating command outputs
+ * Detailed specification parameters for a single PlatformIO development board.
  */
-const CommandOutputSchema = z.object({ ... });
+export interface BoardInfo {
+  id: string; // Internal PlatformIO board identifier (e.g., 'esp32dev')
+  name: string; // Human-readable name of the board
+  platform: string; // Platform identifier (e.g., 'espressif32')
+  mcu: string; // Microcontroller unit model
+  frequency?: string; // Optional CPU frequency string with units
+}
 ```
 
 ---
 
-## 4. Error Handling Style
+## 5. Error Handling Style
 
 This library wraps operations that may fail (like CLI commands). Ensure errors are handled explicitly, and use the custom error hierarchy (e.g., `PlatformIOError`, `PlatformIONotInstalledError`) defined in `src/utils/errors.ts`.
 

@@ -1,6 +1,10 @@
 /**
  * OS Process Management Utilities
  * Tools for identifying and terminating conflicting serial port owners.
+ *
+ * Provides:
+ * - killProcessesUsingPort: Terminates PIDs holding a serial lock.
+ * - killPioMonitors: Specifically targets stray PlatformIO monitor tasks.
  */
 
 import { execSync } from "node:child_process";

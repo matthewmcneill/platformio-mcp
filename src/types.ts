@@ -20,31 +20,40 @@ import type { DiagnosticSummary } from "./utils/diagnostics.js";
 // Command Result Types
 // ============================================================================
 
+/**
+ * Represents the standard output and exit status of a CLI command execution.
+ */
 export interface CommandResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
+  stdout: string; // The standard output string from the process
+  stderr: string; // The standard error string from the process
+  exitCode: number; // The process exit code (0 typically indicates success)
 }
 
 // ============================================================================
 // Board Types
 // ============================================================================
 
+/**
+ * Detailed specification parameters for a single PlatformIO development board.
+ */
 export interface BoardInfo {
-  id: string;
-  name: string;
-  platform: string;
-  mcu: string;
-  frequency?: string;
-  flash?: number;
-  ram?: number;
-  fcpu?: number;
-  rom?: number;
-  frameworks?: string[];
-  vendor?: string;
-  url?: string;
+  id: string; // Internal PlatformIO board identifier (e.g., 'esp32dev')
+  name: string; // Human-readable name of the board
+  platform: string; // Platform identifier (e.g., 'espressif32')
+  mcu: string; // Microcontroller unit model
+  frequency?: string; // Optional CPU frequency string with units
+  flash?: number; // Optional RAM size in bytes
+  ram?: number; // Optional RAM size in bytes
+  fcpu?: number; // Optional CPU frequency in Hz
+  rom?: number; // Optional ROM size in bytes
+  frameworks?: string[]; // List of supported software frameworks (e.g., 'arduino', 'espidf')
+  vendor?: string; // Board manufacturer or vendor
+  url?: string; // URL to the board's documentation or landing page
 }
 
+/**
+ * Zod schema for validating BoardInfo objects.
+ */
 export const BoardInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -60,20 +69,28 @@ export const BoardInfoSchema = z.object({
   url: z.string().optional(),
 });
 
-// PlatformIO boards JSON output is an array of board objects
+/**
+ * Zod schema for an array of BoardInfo objects, typically from 'pio boards --json-output'.
+ */
 export const BoardsArraySchema = z.array(BoardInfoSchema);
 
 // ============================================================================
 // Device Types
 // ============================================================================
 
+/**
+ * Metadata for a detected serial deviceport.
+ */
 export interface SerialDevice {
-  port: string;
-  description: string;
-  hwid: string;
-  detectedBoard?: string;
+  port: string; // The OS-level device path (e.g., '/dev/cu.usbserial-1410')
+  description: string; // Human-readable description of the device
+  hwid: string; // Hardware ID string for port identification
+  detectedBoard?: string; // Optional detected board identifier if PlatformIO recognized it
 }
 
+/**
+ * Zod schema for validating SerialDevice objects.
+ */
 export const SerialDeviceSchema = z.object({
   port: z.string(),
   description: z.string(),
@@ -81,17 +98,23 @@ export const SerialDeviceSchema = z.object({
   detectedBoard: z.string().optional(),
 });
 
+/**
+ * Zod schema for an array of SerialDevice objects, typically from 'pio device list --json-output'.
+ */
 export const DevicesArraySchema = z.array(SerialDeviceSchema);
 
 // ============================================================================
 // Project Types
 // ============================================================================
 
+/**
+ * Configuration for initializing a new PlatformIO project.
+ */
 export interface ProjectConfig {
-  board: string;
-  framework?: string;
-  projectDir?: string;
-  platformOptions?: Record<string, string>;
+  board: string; // Target board identifier
+  framework?: string; // Optional framework (e.g., 'arduino', 'espidf')
+  projectDir?: string; // Root directory where the project should be created
+  platformOptions?: Record<string, string>; // Optional key-value overrides for platform settings
 }
 
 export const ProjectConfigSchema = z.object({
@@ -111,14 +134,17 @@ export interface ProjectInitResult {
 // Build Types
 // ============================================================================
 
+/**
+ * Outcome of a project build execution.
+ */
 export interface BuildResult {
-  success: boolean;
-  environment: string;
-  output?: string;
-  errors?: string[];
-  ramUsageBytes?: number;
-  flashUsageBytes?: number;
-  diagnostics?: DiagnosticSummary;
+  success: boolean; // Indicates if the build completed without errors
+  environment: string; // The environment identifier that was targeted
+  output?: string; // Full stdout log from the compilation process
+  errors?: string[]; // List of extracted error messages from stderr if build failed
+  ramUsageBytes?: number; // Total RAM usage in bytes as reported by PIO
+  flashUsageBytes?: number; // Total Flash usage in bytes as reported by PIO
+  diagnostics?: DiagnosticSummary; // Optional summary of diagnostics if errors were detected
 }
 
 export interface CleanResult {
@@ -142,12 +168,15 @@ export const UploadConfigSchema = z.object({
   environment: z.string().optional(),
 });
 
+/**
+ * Outcome of a firmware or filesystem upload execution.
+ */
 export interface UploadResult {
-  success: boolean;
-  port?: string;
-  output?: string;
-  errors?: string[];
-  diagnostics?: DiagnosticSummary;
+  success: boolean; // Indicates if the upload completed without errors
+  port?: string; // The serial port used for the upload
+  output?: string; // Full stdout log from the upload process
+  errors?: string[]; // List of extracted error messages from stderr if upload failed
+  diagnostics?: DiagnosticSummary; // Optional summary of diagnostics if errors were detected
 }
 
 // ============================================================================
@@ -168,10 +197,13 @@ export const MonitorConfigSchema = z.object({
   durationSeconds: z.number().positive().optional().default(5),
 });
 
+/**
+ * Result of a serial monitoring session.
+ */
 export interface MonitorResult {
-  success: boolean;
-  bufferOutput: string;
-  panicTriggered: boolean;
+  success: boolean; // Indicates if the monitor started and recorded data successfully
+  bufferOutput: string; // Captured string data from the serial port
+  panicTriggered: boolean; // Indicates if a firmware crash or panic was detected in the stream
 }
 
 // ============================================================================
@@ -189,17 +221,20 @@ export interface LibraryRepository {
   url: string;
 }
 
+/**
+ * Metadata for a library from the PlatformIO Registry.
+ */
 export interface LibraryInfo {
-  id?: number;
-  name: string;
-  description?: string;
-  keywords?: string[];
-  authors?: LibraryAuthor[];
-  repository?: LibraryRepository;
-  version?: string;
-  frameworks?: any[];
-  platforms?: any[];
-  homepage?: string;
+  id?: number; // Registry-assigned numerical library ID
+  name: string; // Library name
+  description?: string; // Short description of library functionality
+  keywords?: string[]; // Tags for registry discovery
+  authors?: LibraryAuthor[]; // List of authors and maintainers
+  repository?: LibraryRepository; // Source code repository location
+  version?: string; // Latest available version string
+  frameworks?: any[]; // List of compatible frameworks
+  platforms?: any[]; // List of compatible platforms
+  homepage?: string; // Offical project URL
 }
 
 export const LibraryInfoSchema = z.object({
@@ -234,6 +269,9 @@ export const LibrariesObjectSchema = z.record(
   z.array(LibraryInfoSchema),
 );
 
+/**
+ * Schema for a paginated response from the library registry search API.
+ */
 export const LibrarySearchResponseSchema = z.object({
   searchQuery: z.string().optional(),
   total: z.number().optional(),
@@ -318,6 +356,9 @@ export const ReleaseLockParamsSchema = z.object({
 });
 
 // Get board info parameters
+/**
+ * Zod schema for get_board_info tool parameters.
+ */
 export const GetBoardInfoParamsSchema = z.object({
   boardId: z.string().min(1).describe("Board ID to retrieve information for"),
 });
@@ -478,6 +519,9 @@ export const InstallLibraryParamsSchema = z.object({
 });
 
 // List installed libraries parameters
+/**
+ * Zod schema for list_installed_libraries tool parameters.
+ */
 export const ListInstalledLibrariesParamsSchema = z.object({
   projectDir: z
     .string()
@@ -485,7 +529,9 @@ export const ListInstalledLibrariesParamsSchema = z.object({
     .describe("Project directory (lists global libraries if not specified)"),
 });
 
-// Query logs parameters
+/**
+ * Zod schema for query_logs tool parameters.
+ */
 export const QueryLogsParamsSchema = z.object({
   lines: z
     .number()

@@ -14,15 +14,15 @@
  * Represents a structured response for a captured compilation error
  */
 export interface DiagnosticSummary {
-  errorType:
+  errorType: // Categorization of the failure for remediation logic
     | "MissingHeader"
     | "MemoryOverflow"
     | "PortBusy"
     | "SyntaxError"
     | "LinkingError"
     | "Unknown";
-  summary: string;
-  truncatedStderr: string;
+  summary: string; // Explanatory title for the detected issue
+  truncatedStderr: string; // Relevant line from the error log
 }
 
 /**

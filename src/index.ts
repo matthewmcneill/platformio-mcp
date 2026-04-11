@@ -2,10 +2,12 @@
 
 /**
  * PlatformIO MCP Server Entry Point
- * A board-agnostic MCP server for embedded development with PlatformIO
+ * A board-agnostic MCP server for embedded development with PlatformIO.
  *
  * Provides:
- * - Server: Defines and exposes all MCP tools for client interfacing.
+ * - server: Main Model Context Protocol server instance.
+ * - ListToolsRequestSchema handler: Defines and describes all exposed MCP tools.
+ * - CallToolRequestSchema handler: Routes tool requests to their respective backend logic.
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -15,7 +17,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-// Import types and schemas
+// Import types and schemas for validation
 import {
   ListBoardsParamsSchema,
   GetBoardInfoParamsSchema,
@@ -32,7 +34,7 @@ import {
   QueryLogsParamsSchema,
 } from "./types.js";
 
-// Import tool functions
+// Import tool functions from feature modules
 import { listBoards, getBoardInfo } from "./tools/boards.js";
 import { listDevices } from "./tools/devices.js";
 import { initProject } from "./tools/projects.js";
@@ -54,7 +56,9 @@ import { startPortalServer } from "./api/server.js";
 import { portalEvents } from "./api/events.js";
 import { hardwareLockManager } from "./utils/lock-manager.js";
 
-// Create server instance
+/**
+ * Main PlatformIO MCP Server instance configuration.
+ */
 const server = new Server(
   {
     name: "platformio-mcp-server",
@@ -67,7 +71,11 @@ const server = new Server(
   },
 );
 
-// List available tools
+/**
+ * REGISTER MCP TOOLS
+ * Defines the metadata, descriptions, and input schemas for all tools
+ * exposed by this server.
+ */
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -430,7 +438,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Handle tool calls
+/**
+ * TOOL EXECUTION HANDLER
+ * Intercepts MCP tool calls, performs validation, manages hardware locks,
+ * and calls the underlying business logic.
+ */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name } = request.params;
   const args: any = request.params.arguments || {};

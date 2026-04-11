@@ -288,6 +288,6 @@ export class PlatformIOExecutor {
 }
 
 /**
- * Global executor instance
+ * Global instance of PlatformIOExecutor for project-wide use.
  */
 export const platformioExecutor = new PlatformIOExecutor();

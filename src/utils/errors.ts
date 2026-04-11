@@ -32,7 +32,7 @@ export class PlatformIOError extends Error {
 }
 
 /**
- * Error thrown when PlatformIO CLI is not installed or not found
+ * Error thrown when PlatformIO CLI is not installed or not found in the system PATH.
  */
 export class PlatformIONotInstalledError extends PlatformIOError {
   constructor(
@@ -44,7 +44,7 @@ export class PlatformIONotInstalledError extends PlatformIOError {
 }
 
 /**
- * Error thrown when a board ID is invalid or not found
+ * Error thrown when a board ID is invalid or cannot be resolved in the PlatformIO registry.
  */
 export class BoardNotFoundError extends PlatformIOError {
   constructor(boardId: string) {
@@ -58,7 +58,7 @@ export class BoardNotFoundError extends PlatformIOError {
 }
 
 /**
- * Error thrown when project initialization fails
+ * Error thrown when the `project init` command fails to scaffold a new codebase.
  */
 export class ProjectInitError extends PlatformIOError {
   constructor(message: string, context?: Record<string, unknown>) {
@@ -68,7 +68,7 @@ export class ProjectInitError extends PlatformIOError {
 }
 
 /**
- * Error thrown when project build fails
+ * Error thrown when the `run` command fails during the compilation phase.
  */
 export class BuildError extends PlatformIOError {
   constructor(message: string, context?: Record<string, unknown>) {
@@ -78,7 +78,7 @@ export class BuildError extends PlatformIOError {
 }
 
 /**
- * Error thrown when firmware upload fails
+ * Error thrown when the firmware or filesystem upload operation fails to reach the device.
  */
 export class UploadError extends PlatformIOError {
   constructor(message: string, context?: Record<string, unknown>) {
@@ -88,7 +88,7 @@ export class UploadError extends PlatformIOError {
 }
 
 /**
- * Error thrown when library operations fail
+ * Error thrown during library registry interactions (install, search, update).
  */
 export class LibraryError extends PlatformIOError {
   constructor(message: string, context?: Record<string, unknown>) {
@@ -98,7 +98,7 @@ export class LibraryError extends PlatformIOError {
 }
 
 /**
- * Error thrown when command execution times out
+ * Error thrown when a child process execution exceeds the defined timeout limit.
  */
 export class CommandTimeoutError extends PlatformIOError {
   constructor(command: string, timeout: number) {

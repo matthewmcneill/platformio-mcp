@@ -1,3 +1,12 @@
+/**
+ * Port Semaphore Manager
+ * Coordinates physical UART ownership via the filesystem.
+ *
+ * Provides:
+ * - SemaphoreManager: Singleton for hardware-level port locking.
+ * - portSemaphoreManager: Default exported instance.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import { LOCKS_DIR, ensureLocksDir, sanitizePortName } from "./paths.js";
