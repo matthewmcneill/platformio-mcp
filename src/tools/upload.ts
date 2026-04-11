@@ -15,6 +15,7 @@ import {
   validateEnvironmentName,
   validateSerialPort,
 } from "../utils/validation.js";
+import { findDeviceByPort, listDevices } from "./devices.js";
 import { UploadError, PlatformIOError } from "../utils/errors.js";
 import { parseStderrErrors } from "../utils/errors.js";
 import { serialManager } from "../utils/serial-manager.js";
@@ -23,6 +24,42 @@ import { startSpoolingDaemon, stopSpoolingDaemon } from "./monitor.js";
 import { portalEvents } from "../api/events.js";
 import { portSemaphoreManager } from "../utils/semaphore.js";
 import { buildLogger } from "../utils/build-logger.js";
+import type { SerialDevice } from "../types.js";
+
+/**
+ * Polling helper that waits for a device to re-appear after a hardware reset/flash.
+ * Useful for ESP32-S3 and other native USB boards that re-enumerate.
+ */
+async function waitForReenumeration(
+  originalDevice: SerialDevice,
+  timeoutMs: number = 10000,
+): Promise<string> {
+  const startTime = Date.now();
+  const pollingInterval = 500;
+
+  // Wait a moment for the device to actually detach
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  while (Date.now() - startTime < timeoutMs) {
+    const devices = await listDevices();
+
+    // Priority 1: Check if it's still on the original port
+    const onOriginal = devices.find((d) => d.port === originalDevice.port);
+    if (onOriginal) return originalDevice.port;
+
+    // Priority 2: Check if it's on a new port but has the same HWID
+    const onNew = devices.find((d) => d.hwid === originalDevice.hwid);
+    if (onNew) {
+      return onNew.port;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollingInterval));
+  }
+
+  // Fallback to original port if discovery times out
+  return originalDevice.port;
+}
+
 
 /**
  * Uploads filesystem (SPIFFS/LittleFS) to a connected device.
@@ -59,15 +96,19 @@ export async function uploadFilesystem(
 
     // Step 1: Resolve port, Kill Spooler, Lock UART
     let activePort = port;
-    if (!activePort) {
+    let targetDevice: SerialDevice | null = null;
+
+    if (activePort) {
+      targetDevice = await findDeviceByPort(activePort);
+    } else {
       const { getFirstDevice } = await import("./devices.js");
-      const defaultDevice = await getFirstDevice();
-      if (!defaultDevice)
+      targetDevice = await getFirstDevice();
+      if (!targetDevice)
         throw new PlatformIOError(
           "No serial devices detected for upload.",
           "PORT_NOT_FOUND",
         );
-      activePort = defaultDevice.port;
+      activePort = targetDevice.port;
     }
 
     const { getSpoolerStates } = await import("./monitor.js");
@@ -126,7 +167,15 @@ export async function uploadFilesystem(
       portSemaphoreManager.releasePort(lockTarget);
       
       if (shouldAutoReconnect) {
-        startSpoolingDaemon(lockTarget).catch((e) =>
+        let reconnectPort = lockTarget;
+
+        // Re-enumeration Handshake: If the port is likely a native USB S3/C3/etc, 
+        // wait for it to re-appear possibly on a new name.
+        if (targetDevice) {
+           reconnectPort = await waitForReenumeration(targetDevice);
+        }
+
+        startSpoolingDaemon(reconnectPort).catch((e) =>
           console.error("Auto-spooler failed to restart after upload", e),
         );
       }
@@ -182,15 +231,19 @@ export async function uploadFirmware(
 
   // Step 1: Resolve port, Kill Spooler, Lock UART
   let activePort = port;
-  if (!activePort) {
+  let targetDevice: SerialDevice | null = null;
+
+  if (activePort) {
+    targetDevice = await findDeviceByPort(activePort);
+  } else {
     const { getFirstDevice } = await import("./devices.js");
-    const defaultDevice = await getFirstDevice();
-    if (!defaultDevice)
+    targetDevice = await getFirstDevice();
+    if (!targetDevice)
       throw new PlatformIOError(
         "No serial devices detected for upload.",
         "PORT_NOT_FOUND",
       );
-    activePort = defaultDevice.port;
+    activePort = targetDevice.port;
   }
 
   const { getSpoolerStates } = await import("./monitor.js");
@@ -249,7 +302,14 @@ export async function uploadFirmware(
     portSemaphoreManager.releasePort(lockTarget);
     
     if (shouldAutoReconnect) {
-      startSpoolingDaemon(lockTarget).catch((e) =>
+      let reconnectPort = lockTarget;
+
+      // Re-enumeration Handshake
+      if (targetDevice) {
+        reconnectPort = await waitForReenumeration(targetDevice);
+      }
+
+      startSpoolingDaemon(reconnectPort).catch((e) =>
         console.error("Auto-spooler failed to restart after upload", e),
       );
     }
@@ -299,11 +359,15 @@ export async function uploadAndMonitor(
 
   // Resolve port if not provided to ensure we can kill conflicting processes
   let activePort = port;
-  if (!activePort) {
+  let targetDevice: SerialDevice | null = null;
+  
+  if (activePort) {
+    targetDevice = await findDeviceByPort(activePort);
+  } else {
     const { getFirstDevice } = await import("./devices.js");
-    const defaultDevice = await getFirstDevice();
-    if (defaultDevice) {
-      activePort = defaultDevice.port;
+    targetDevice = await getFirstDevice();
+    if (targetDevice) {
+      activePort = targetDevice.port;
     }
   }
 
@@ -341,7 +405,14 @@ export async function uploadAndMonitor(
     const diagnostics = success ? undefined : diagnoseError(result.stderr);
 
     if (success) {
-      startSpoolingDaemon(lockTarget).catch((e) =>
+      let reconnectPort = lockTarget;
+      
+      // Re-enumeration Handshake
+      if (targetDevice) {
+        reconnectPort = await waitForReenumeration(targetDevice);
+      }
+      
+      startSpoolingDaemon(reconnectPort).catch((e) =>
         console.error("Auto-spooler failed to restart after upload", e),
       );
     }

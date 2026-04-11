@@ -9,6 +9,7 @@
  * - hasConnectedDevices: Checks for existing endpoints.
  * - findDevicesByDescription: Queries devices by hardware description.
  * - findDevicesByHardwareId: Queries devices by internal identifier.
+ * - findDeviceByHwid: Resolves a single device by exact hardware ID.
  */
 
 import { platformioExecutor } from "../platformio.js";
@@ -135,4 +136,17 @@ export async function findDevicesByHardwareId(
   return devices.filter((device) =>
     device.hwid.toLowerCase().includes(searchLower),
   );
+}
+
+/**
+ * Finds a specific device by its exact hardware ID.
+ *
+ * @param hwid - The hardware ID to match.
+ * @returns The matched device or null.
+ */
+export async function findDeviceByHwid(
+  hwid: string,
+): Promise<SerialDevice | null> {
+  const devices = await listDevices();
+  return devices.find((device) => device.hwid === hwid) || null;
 }
