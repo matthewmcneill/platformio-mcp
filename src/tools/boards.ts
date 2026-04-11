@@ -61,7 +61,7 @@ export async function listBoards(filter?: string): Promise<BoardInfo[]> {
     // Use shorter timeout for board listing
     const result = await platformioExecutor.executeWithJsonOutput(
       "boards",
-      [],
+      args.slice(1),
       PioBoardsOutputSchema,
       { timeout: 30000 },
     );

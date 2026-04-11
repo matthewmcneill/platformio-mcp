@@ -1,6 +1,6 @@
 {
   "name": "platformio-mcp-server",
-  "version": "1.0.0",
+  "version": "2.0.1",
   "description": "A board-agnostic MCP server for PlatformIO embedded development - supports 1000+ boards across 30+ platforms",
   "type": "module",
   "main": "build/index.js",

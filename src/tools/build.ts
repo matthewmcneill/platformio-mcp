@@ -43,7 +43,7 @@ export async function buildProject(
   }
 
   try {
-    const args: string[] = [];
+    const args: string[] = ["run"];
 
     // Add environment if specified
     if (environment) {
