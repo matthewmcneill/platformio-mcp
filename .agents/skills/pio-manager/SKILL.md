@@ -1,6 +1,6 @@
 ---
 name: pio-manager
-description: The absolute Single Source of Truth for executing PlatformIO operations (compiling, flashing, log-reading, and queue locking). Agents must strictly route all hardware checks and commands through this skill.
+description: The absolute Single Source of Truth for executing PlatformIO operations (compiling, flashing, log-reading, and queue locking). Agents must strictly route all hardware checks and commands through this skill. Use this skill when auditing or reviewing platformio.ini, resolving port conflicts, build port errors, port not found, device not configured, or resource busy errors.
 ---
 
 # PIO Manager (Mega-Skill)
@@ -39,3 +39,11 @@ Use the pre-built asset wrappers inside `.agents/skills/pio-manager/assets/` to 
 
 ## Troubleshooting & Deadlocks
 If you execute `mcp_platformio_get_lock_status` and discover a stray session ID is permanently holding the hardware lock, query the stray `sessionId` and forcefully execute `mcp_platformio_release_lock` with that stray ID to prune the queue.
+
+---
+
+## ESP32 Config & macOS Auditing
+If the user asks you to audit or review a `platformio.ini` file for ESP32 devices, or if you encounter persistent flashing anomalies on macOS (such as `[Errno 16] Resource busy`, `Device not configured`, or port drift where the serial port increments/changes), you MUST immediately load and read the bundled knowledge reference:
+- View the bundled knowledge reference located at `references/esp32-macos-tuning.md` (relative to this skill's root directory).
+
+This reference contains highly specific configurations (DTR/RTS overrides, Native USB CDC flags) and deterministic port resolution strategies required to stabilize the ESP32 macOS flashing pipeline.
