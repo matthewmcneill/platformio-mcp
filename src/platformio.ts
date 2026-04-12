@@ -12,8 +12,14 @@
  * - DEFAULT_TIMEOUT: Standard timeout configuration for PIO commands.
  */
 
-import { execFile } from "child_process";
+import { execFile, spawn, ChildProcess } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "url";
 import { z } from "zod";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import type { CommandResult } from "./types.js";
 import {
   PlatformIONotInstalledError,
@@ -285,9 +291,83 @@ export class PlatformIOExecutor {
 
     return parsePioJsonOutput(result.stdout, schema);
   }
+
+  /**
+   * Spawns a long-running PlatformIO command (e.g., monitor).
+   * Implements the same binary resolution logic as 'execute'.
+   *
+   * @param command - The PIO subcommand.
+   * @param args - Arguments array for the PlatformIO CLI.
+   * @param options - Execution options including working directory, environment overrides, and fake TTY bridging.
+   * @returns The spawned ChildProcess instance.
+   */
+  spawn(
+    command: string,
+    args: string[],
+    options: {
+      cwd?: string;
+      env?: NodeJS.ProcessEnv;
+      useFakeTty?: boolean;
+    } = {},
+  ): ChildProcess {
+    let pioBinary = "pio";
+    let pioArgs = [command, ...args];
+    
+    const env = { 
+      ...process.env, 
+      ...options.env,
+    };
+
+    // If a fake TTY is requested (macOS/Linux), wrap with our Python PTY bridge
+    if (options.useFakeTty && process.platform !== "win32") {
+      const absolutePio = resolvePioPath();
+      const proxyScriptPath = path.join(__dirname, "..", "src", "utils", "mcp_pio_proxy.py");
+      
+      pioBinary = "python3";
+      pioArgs = [proxyScriptPath, absolutePio, command, ...args];
+    }
+
+    // Log the actual command being spawned for diagnostics
+    const fullCmd = `${pioBinary} ${pioArgs.join(" ")}`;
+    try {
+      const logDir = path.join(__dirname, "..", "logs");
+      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+      fs.appendFileSync(
+        path.join(logDir, "mcp-internal.log"),
+        `[${new Date().toISOString()}] [Spooler Executor] Spawning: ${fullCmd}\n`
+      );
+    } catch (e) {
+      console.error(`Failed to write to internal log: ${e}`);
+    }
+
+    // Consistent with execute(), we rely on environment inheritance.
+    // shell: false ensures the environment isn't mangled by a sub-shell.
+    return spawn(pioBinary, pioArgs, {
+      cwd: options.cwd,
+      env,
+      shell: false
+    });
+  }
 }
 
 /**
  * Global instance of PlatformIOExecutor for project-wide use.
  */
 export const platformioExecutor = new PlatformIOExecutor();
+
+/**
+ * Resolves the absolute path to the PlatformIO binary.
+ * Required for tools like 'script' that don't perform PATH resolution.
+ */
+function resolvePioPath(): string {
+  const candidates = [
+    "/usr/local/bin/pio",
+    "/opt/homebrew/bin/pio",
+    "/usr/bin/pio",
+    "/bin/pio",
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return "pio"; // Fallback to PATH
+}

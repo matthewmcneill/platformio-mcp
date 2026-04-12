@@ -150,3 +150,60 @@ export async function findDeviceByHwid(
   const devices = await listDevices();
   return devices.find((device) => device.hwid === hwid) || null;
 }
+
+/**
+ * Actively polls the system bus for a device matching a specific hardware ID to reappear.
+ * Essential for macOS where ESP32-S3 boards physically drop off the bus and re-enumerate 
+ * with incremented port suffixes after a firmware flash.
+ *
+ * @param hwid - The exact hardware identifier (e.g., '303A:1001') to poll for.
+ * @param timeoutMs - Maximum duration in milliseconds to wait before giving up.
+ * @returns The newly assigned physical port path (e.g., '/dev/cu.usbmodem102') or null on timeout.
+ */
+export async function waitForDeviceByHwid(
+  hwid: string,
+  timeoutMs: number = 5000,
+  logCallback?: (msg: string) => void
+): Promise<string | null> {
+  if (!hwid) return null;
+
+  const pollIntervalMs = 500;
+  const maxAttempts = Math.ceil(timeoutMs / pollIntervalMs);
+  
+  // Extract rigid hardware attributes (VID:PID and Serial), ignoring transient macOS 'LOCATION=' strings
+  const strictTokens = hwid.split(" ").filter(t => t.includes("VID:PID") || t.includes("SER"));
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const devices = await listDevices();
+    
+    if (logCallback) {
+        logCallback(`[Poll Attempt ${attempt}/${maxAttempts}] Discovered ${devices.length} system serial ports.\n`);
+        devices.forEach(d => logCallback(`  -> Discovered: ${d.port} (${d.hwid})\n`));
+    }
+
+    const matchedDevice = devices.find((device) => {
+      if (strictTokens.length > 0) {
+        return strictTokens.every(token => device.hwid.includes(token));
+      }
+      return device.hwid === hwid;
+    });
+
+    if (matchedDevice && matchedDevice.port) {
+      if (attempt > 1 || logCallback) {
+        const msg = `[Device Discovery] Device rigidly matched on port ${matchedDevice.port} (HWID: ${matchedDevice.hwid}) after ${attempt * pollIntervalMs}ms.`;
+        console.error(msg);
+        if (logCallback) logCallback(msg + "\n");
+      }
+      return matchedDevice.port;
+    }
+    
+    // Non-blocking wait before next poll
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  const timeoutMsg = `[Device Discovery] Timeout (${timeoutMs}ms) waiting for stable signature: ${strictTokens.join(" ")}`;
+  console.error(timeoutMsg);
+  if (logCallback) logCallback(timeoutMsg + "\n");
+  
+  return null;
+}

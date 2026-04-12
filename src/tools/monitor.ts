@@ -10,7 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { SerialPort } from "serialport";
+import { ChildProcess } from "node:child_process";
 import { validateSerialPort, validateBaudRate } from "../utils/validation.js";
 import { PlatformIOError } from "../utils/errors.js";
 import { serialManager } from "../utils/serial-manager.js";
@@ -19,22 +19,45 @@ import { portalEvents } from "../api/events.js";
 import { fileURLToPath } from "url";
 import { killProcessesUsingPort } from "../utils/process-manager.js";
 import { portSemaphoreManager } from "../utils/semaphore.js";
+import { platformioExecutor } from "../platformio.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Base directory for server log artifacts
 const DEFAULT_LOG_DIR = path.join(__dirname, "..", "..", "logs");
 
+// Spooler diagnostic file target
+const DIAGNOSTIC_LOG = path.join(DEFAULT_LOG_DIR, "mcp-internal.log");
+
+function logDiag(msg: string) {
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] ${msg}\n`;
+  if (!fs.existsSync(DEFAULT_LOG_DIR)) {
+    fs.mkdirSync(DEFAULT_LOG_DIR, { recursive: true });
+  }
+  fs.appendFileSync(DIAGNOSTIC_LOG, line);
+  console.error(msg);
+}
+
+/**
+ * State and context mapping for an actively spooled hardware port.
+ */
 type DaemonContext = {
-  port: SerialPort | null;
-  baudRate: number;
-  stream1: fs.WriteStream;
-  stream2: fs.WriteStream;
-  intentionallyClosed: boolean;
-  reconnectTimer?: NodeJS.Timeout;
-  logFile: string;
-  autoReconnect: boolean;
+  proc: ChildProcess | null; // The background PlatformIO execution wrapper process
+  baudRate: number; // Communication speed override
+  environment?: string; // Configured environment properties map
+  hwid: string | null; // HWID to track the device across macOS descriptor re-enumerations
+  stream1: fs.WriteStream; // Primary global disk append stream
+  stream2: fs.WriteStream; // Secondary project-local disk append stream
+  intentionallyClosed: boolean; // Flag to prevent auto-reconnect loops when manually closed
+  reconnectTimer?: NodeJS.Timeout; // Node timer for evaluating hardware re-enumeration checks
+  logFile: string; // Active absolute path to the local primary written file
+  autoReconnect: boolean; // User configuration controlling automatic restart
+  status: "Logging" | "Connecting" | "Idle" | "Flashing"; // Public state presented to web UI
 };
+
+// Global pool of hardware streams managed by the MCP server
 const activeDaemons: Record<string, DaemonContext> = {};
 
 export function getSpoolerStates() {
@@ -42,14 +65,10 @@ export function getSpoolerStates() {
   
   for (const portName of Object.keys(activeDaemons)) {
     const daemon = activeDaemons[portName];
-    let status: "Logging" | "Flashing" | "Connecting" | "Idle" = "Connecting";
+    let status = daemon.status;
     
-    if (daemon.port?.isOpen) {
-      status = "Logging";
-    } else if (portSemaphoreManager.isPortClaimed(portName)) {
+    if (portSemaphoreManager.isPortClaimed(portName)) {
       status = "Flashing";
-    } else if (daemon.intentionallyClosed) {
-      status = "Idle";
     }
 
     states[portName] = {
@@ -91,33 +110,39 @@ function rotateLogs(targetDir: string, maxHistory = 30) {
   }
 }
 
-/**
- * Destroys any active serialport daemon to cleanly relinquish the mutex lock.
- *
- * @param port - Identifier of the engaged port to abandon.
- */
 export async function stopSpoolingDaemon(port: string, teardown: boolean = true) {
+  logDiag(`[Spooler Diagnostic] stopSpoolingDaemon called for port ${port}. Teardown: ${teardown}.`);
   if (activeDaemons[port]) {
+    logDiag(`[Spooler Diagnostic] Daemon context found for ${port}. Checking process...`);
     const daemon = activeDaemons[port];
     daemon.intentionallyClosed = true;
-    if (daemon.reconnectTimer) clearTimeout(daemon.reconnectTimer);
+    daemon.status = "Idle";
+
+    if (daemon.reconnectTimer) {
+       logDiag(`[Spooler Diagnostic] Clearing reconnect polling timer.`);
+       clearTimeout(daemon.reconnectTimer);
+    }
 
     daemon.stream1.end();
     daemon.stream2.end();
 
-    if (daemon.port && daemon.port.isOpen) {
-      await new Promise<void>((resolve) => {
-        daemon.port?.close((err) => {
-          if (err)
-            console.error(
-              `[Spooler] Error closing port ${port}: ${err.message}`,
-            );
-          resolve();
-        });
-      });
+    if (daemon.proc) {
+      logDiag(`[Spooler Diagnostic] Process exists. Sending SIGINT (Ctrl+C equivalent)...`);
+      daemon.proc.kill("SIGINT");
+      // Wait for it to die gracefully (up to 2 seconds)
+      for (let i = 0; i < 20; i++) {
+        if (daemon.proc.exitCode !== null) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (daemon.proc && daemon.proc.exitCode === null) {
+        logDiag(`[Spooler Diagnostic] Process still alive, sending SIGKILL...`);
+        daemon.proc.kill("SIGKILL");
+      }
+      daemon.proc = null;
     }
 
     if (teardown) {
+      logDiag(`[Spooler Diagnostic] Deleting activeDaemons context.`);
       delete activeDaemons[port];
       try {
         serialManager.unlockPort(port);
@@ -125,67 +150,59 @@ export async function stopSpoolingDaemon(port: string, teardown: boolean = true)
     }
     
     portalEvents.emitSpoolerStates?.(getSpoolerStates());
+  } else {
+    logDiag(`[Spooler Diagnostic] No daemon context found for ${port} during stop command.`);
   }
 
-  // Crucial: Clear ANY process using this port before we let PIO take it
-  // We do this AFTER closing our own port to ensure we don't try to kill ourselves
-  // but catch any stray monitors or other apps.
+  // Final safety cleanup
+  logDiag(`[Spooler Diagnostic] Triggering killProcessesUsingPort on ${port}...`);
   killProcessesUsingPort(port);
+  logDiag(`[Spooler Diagnostic] killProcessesUsingPort completed.`);
 }
 
 function startReconnectPolling(targetPort: string) {
   const daemon = activeDaemons[targetPort];
   if (!daemon || daemon.intentionallyClosed || daemon.reconnectTimer) return;
 
-  const startTime = Date.now();
-
   const attemptConnect = async () => {
-    if (daemon.intentionallyClosed || !daemon.autoReconnect) return;
+    let currentDaemon = activeDaemons[targetPort];
+    if (!currentDaemon || currentDaemon.intentionallyClosed || !currentDaemon.autoReconnect) return;
 
-    // Phase 1: Check Semaphore before even looking at the hardware
     if (portSemaphoreManager.isPortClaimed(targetPort)) {
-      portalEvents.emitSerialLog?.(targetPort, "[Spooler] Port is claimed by local agent. Yielding...");
+      currentDaemon.status = "Idle";
       portalEvents.emitSpoolerStates?.(getSpoolerStates());
-      // Rapid retry check while we are yielding (10ms)
-      daemon.reconnectTimer = setTimeout(attemptConnect, 10);
+      currentDaemon.reconnectTimer = setTimeout(attemptConnect, 1000);
       return;
     }
 
-    // Determine backoff logic: 500ms for first 30 seconds, 2000ms after
-    const elapsed = Date.now() - startTime;
-    const pollInterval = elapsed < 30000 ? 50 : 2000;
+    currentDaemon.status = "Connecting";
+    portalEvents.emitSpoolerStates?.(getSpoolerStates());
 
-    const serial = new SerialPort({
-      path: targetPort,
-      baudRate: daemon.baudRate,
-      autoOpen: false,
-    });
-
-    serial.open((err) => {
-      if (err) {
-        // Failed to connect, queue next attempt
-        daemon.reconnectTimer = setTimeout(attemptConnect, pollInterval);
-      } else {
-        // Successfully reconnected - ROTATE LOGS
-        console.error(
-          `[Spooler] Successfully restored physical interface to ${targetPort}`,
-        );
-        daemon.reconnectTimer = undefined;
-        daemon.port = serial;
-
-        // Rotate log files on reclamation
-        const newStreams = rotateSpoolerStreams(targetPort);
-        daemon.stream1 = newStreams.stream1;
-        daemon.stream2 = newStreams.stream2;
-        daemon.logFile = newStreams.logFile;
-
-        attachSerialEvents(serial, targetPort);
-        portalEvents.emitSpoolerStates?.(getSpoolerStates());
+    try {
+      let activePort = targetPort;
+      // If we know the HWID, poll to see if it changed ports
+      if (currentDaemon.hwid) {
+        const { waitForDeviceByHwid } = await import("./devices.js");
+        const newPort = await waitForDeviceByHwid(currentDaemon.hwid, 3000);
+        if (newPort && newPort !== targetPort) {
+          logDiag(`[Spooler] Device HWID ${currentDaemon.hwid} reappeared on new port: ${newPort}. Updating daemon registry.`);
+          // Migrate daemon context
+          activeDaemons[newPort] = currentDaemon;
+          delete activeDaemons[targetPort];
+          activePort = newPort;
+          // Update the targetPort closure variable so future loops hitting attemptConnect use the right key
+          targetPort = newPort;
+        }
       }
-    });
+
+      // Re-trigger the main spawning logic
+      await spawnPioMonitor(activePort);
+    } catch (e) {
+      currentDaemon.reconnectTimer = setTimeout(attemptConnect, 2000);
+    }
   };
 
-  daemon.reconnectTimer = setTimeout(attemptConnect, 10);
+  daemon.reconnectTimer = setTimeout(attemptConnect, 1000);
 }
 
 /**
@@ -213,57 +230,77 @@ function rotateSpoolerStreams(activePort: string) {
   return { stream1, stream2, logFile };
 }
 
-function attachSerialEvents(serial: SerialPort, targetPort: string) {
+async function spawnPioMonitor(targetPort: string) {
+  const daemon = activeDaemons[targetPort];
+  if (!daemon || daemon.intentionallyClosed) return;
+
+  const monitorArgs = [
+    "--port", targetPort,
+    "--quiet",
+    "--raw"
+  ];
+
+  // If we have an environment, use it to respect platformio.ini settings
+  if (daemon.environment) {
+    monitorArgs.push("--environment", daemon.environment);
+  } else {
+    // Fallback to explicit baud if no environment is specified
+    monitorArgs.push("--baud", daemon.baudRate.toString());
+  }
+
+  logDiag(`[Spooler] Spawning pio monitor (Env: ${daemon.environment || "None"}) via executor for ${targetPort}`);
+
+  const proc = platformioExecutor.spawn("device", ["monitor", ...monitorArgs], {
+    useFakeTty: true
+  });
+
+  daemon.proc = proc;
+  daemon.status = "Logging";
+
   let buffer = "";
-
-  serial.on("data", (data: Buffer) => {
-    const daemon = activeDaemons[targetPort];
-    if (!daemon) return;
-
-    buffer += data.toString("utf8");
+  proc.stdout?.on("data", (data: Buffer) => {
+    const text = data.toString("utf8");
+    buffer += text;
+    
+    // Split by line for WebSocket events, but write raw to files
     const lines = buffer.split("\n");
-
-    // The last chunk is always the remainder (incomplete line)
     buffer = lines.pop() || "";
 
-    // Push each finalized line as an atomic event
     lines.forEach((line) => {
-      const text = line + "\n";
-      daemon.stream1.write(text);
-      daemon.stream2.write(text);
-      portalEvents.emitSerialLog(targetPort, line.replace(/\r$/, "")); // Stream clean line to UI
+      const cleanLine = line.replace(/\r$/, "");
+      portalEvents.emitSerialLog(targetPort, cleanLine);
+      daemon.stream1.write(line + "\n");
+      daemon.stream2.write(line + "\n");
     });
   });
 
-  const handleDisconnect = (err?: Error) => {
-    const daemon = activeDaemons[targetPort];
-    if (!daemon || daemon.intentionallyClosed) return;
-
-    if (err) {
-      console.error(
-        `[Spooler] Unexpected runtime error on ${targetPort}: ${err.message}`,
-      );
-    } else {
-      console.error(
-        `[Spooler] Interface ${targetPort} closed natively. Spooler auto-recovering...`,
-      );
+  proc.stderr?.on("data", (data: Buffer) => {
+    const errorText = data.toString("utf8").trim();
+    if (errorText) {
+      logDiag(`[Spooler Monitor Stderr] ${errorText}`);
+      // Also send first line of error to portal to help user debug
+      portalEvents.emitSerialLog(targetPort, `[Error] ${errorText.split("\n")[0]}`);
     }
-
-    if (daemon.port?.isOpen) {
-      try {
-        daemon.port.close();
-      } catch (e) {}
-    }
-    daemon.port = null;
-    portalEvents.emitSpoolerStates?.(getSpoolerStates());
-    startReconnectPolling(targetPort);
-  };
-
-  serial.on("open", () => {
-    portalEvents.emitSpoolerStates?.(getSpoolerStates());
   });
-  serial.on("error", (err: any) => handleDisconnect(err));
-  serial.on("close", () => handleDisconnect());
+
+  proc.on("error", (err) => {
+    logDiag(`[Spooler] Child process spawn error: ${err.message}`);
+    portalEvents.emitSerialLog(targetPort, `[Error] Failed to spawn monitor: ${err.message}`);
+  });
+
+  proc.on("close", (code) => {
+    if (daemon.intentionallyClosed) {
+      logDiag(`[Spooler] Monitor process exited as expected (code ${code}).`);
+    } else {
+      logDiag(`[Spooler] Monitor process exited unexpectedly (code ${code}). Reconnecting...`);
+      daemon.proc = null;
+      daemon.status = "Connecting";
+      portalEvents.emitSpoolerStates?.(getSpoolerStates());
+      startReconnectPolling(targetPort);
+    }
+  });
+
+  portalEvents.emitSpoolerStates?.(getSpoolerStates());
 }
 
 /**
@@ -279,8 +316,11 @@ export async function startSpoolingDaemon(
   baud: number = 115200,
   autoReconnect: boolean = true, // Mandatory default now
   projectDir?: string,
+  environment?: string,
 ) {
   let activePort = port;
+  let activeHwid: string | null = null;
+  
   if (!activePort) {
     const defaultDevice = await getFirstDevice();
     if (!defaultDevice)
@@ -289,6 +329,11 @@ export async function startSpoolingDaemon(
         "PORT_NOT_FOUND",
       );
     activePort = defaultDevice.port;
+    activeHwid = defaultDevice.hwid;
+  } else {
+    const { findDeviceByPort } = await import("./devices.js");
+    const matchedDevice = await findDeviceByPort(activePort);
+    activeHwid = matchedDevice?.hwid || null;
   }
 
   if (!validateSerialPort(activePort))
@@ -322,22 +367,21 @@ export async function startSpoolingDaemon(
   serialManager.lockPort(activePort);
 
   // Track daemon context before instantiating generic port bounds
-  activeDaemons[activePort] = {
-    port: null,
+  const daemon: DaemonContext = {
+    proc: null,
     baudRate: baud,
+    environment,
+    hwid: activeHwid,
     stream1: initialStreams.stream1,
     stream2: initialStreams.stream2,
     intentionallyClosed: false,
     logFile: initialStreams.logFile,
     autoReconnect,
+    status: "Connecting"
   };
+  activeDaemons[activePort] = daemon;
 
-  const serial = new SerialPort({ path: activePort, baudRate: baud });
-  activeDaemons[activePort].port = serial;
-
-  attachSerialEvents(serial, activePort);
-
-  portalEvents.emitSpoolerStates?.(getSpoolerStates());
+  await spawnPioMonitor(activePort);
 
   return { success: true, port: activePort, logFile: initialStreams.logFile };
 }

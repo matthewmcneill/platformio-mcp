@@ -28,6 +28,7 @@ export function killProcessesUsingPort(port: string): void {
         ? `lsof -t "${port}"`
         : `fuser "${port}" 2>/dev/null`;
 
+    console.error(`[ProcessManager Diagnostic] Executing OS process killer: ${command}`);
     const output = execSync(command, { encoding: "utf8" }).trim();
     if (output) {
       // Split by any whitespace or newline
@@ -35,7 +36,11 @@ export function killProcessesUsingPort(port: string): void {
       for (const pidStr of pids) {
         if (pidStr) {
           const pid = parseInt(pidStr, 10);
-          if (isNaN(pid) || pid === process.pid) continue;
+          console.error(`[ProcessManager Diagnostic] Found PID executing on port: ${pid}. MCP PID is: ${process.pid}`);
+          if (isNaN(pid) || pid === process.pid) {
+             console.error(`[ProcessManager Diagnostic] Bypassing PID ${pid} (Current MCP Server Node Instance / Invalid).`);
+             continue;
+          }
 
           console.error(
             `[ProcessManager] Conflict detected. Terminating PID ${pid} holding ${port}`,
@@ -43,15 +48,20 @@ export function killProcessesUsingPort(port: string): void {
           try {
             // Use SIGKILL to ensure it doesn't try to restart or hang on exit
             process.kill(pid, "SIGKILL");
+            console.error(`[ProcessManager Diagnostic] Successfully sent SIGKILL to PID ${pid}.`);
           } catch (e) {
             // Process might have already exited
+            console.error(`[ProcessManager Diagnostic] Failed to SIGKILL PID ${pid}: ${e}`);
           }
         }
       }
+    } else {
+      console.error(`[ProcessManager Diagnostic] No conflicting processes found by OS.`);
     }
-  } catch (error) {
+  } catch (error: any) {
     // Command failed usually means no process found or port doesn't exist
     // We can safely ignore this as the intent is to clear the port
+    console.error(`[ProcessManager Diagnostic] OS returned an error (likely no process or port missing): ${error.message}`);
   }
 }
 
@@ -64,9 +74,9 @@ export function killPioMonitors(): void {
   if (platform !== "darwin" && platform !== "linux") return;
 
   try {
-    // Find pids for processes that look like pio monitor
+    // Find pids for processes that look like pio monitor or raw miniterm
     const command =
-      "ps aux | grep -E 'pio|platformio' | grep 'monitor' | grep -v 'grep' | awk '{print $2}'";
+      "ps aux | grep -E 'pio|platformio|miniterm' | grep -v 'grep' | grep -E 'monitor|device monitor|miniterm' | awk '{print $2}'";
     const output = execSync(command, { encoding: "utf8" }).trim();
 
     if (output) {

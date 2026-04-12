@@ -338,6 +338,13 @@ If you get "PlatformIO CLI not found" errors:
 - Verify platformio.ini configuration
 - Try cleaning: `pio run -t clean`
 
+## Documentation & Guides
+
+For advanced configuration and detailed reference materials regarding hardware edge cases, consult the following guides:
+
+- [Setting Up ESP32 Devices for Native USB Stability](docs/SettingUpESP32Devices.md)
+- [macOS Port Conflicts Reference Document](docs/reference/ESP32PortConflictsOnMacOS.md)
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues or pull requests.
