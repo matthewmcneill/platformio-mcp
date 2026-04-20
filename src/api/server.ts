@@ -314,46 +314,6 @@ export function startPortalServer(defaultPort = 8080) {
     }
   });
 
-  app.post("/api/commands/build", async (req, res) => {
-    try {
-      const { projectDir, environment } = req.body;
-      const result = await buildProject(projectDir, environment, false, true);
-      res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.post("/api/commands/clean", async (req, res) => {
-    try {
-      const { projectDir } = req.body;
-      const result = await cleanProject(projectDir, true);
-      res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.post("/api/commands/upload", async (req, res) => {
-    try {
-      const { projectDir, port, environment } = req.body;
-      const result = await uploadFirmware(projectDir, port, environment, false, true, true);
-      res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.post("/api/commands/uploadfs", async (req, res) => {
-    try {
-      const { projectDir, port, environment } = req.body;
-      const result = await uploadFilesystem(projectDir, port, environment, false, true, true);
-      res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
 
   app.post("/api/spooler/start", async (req, res) => {
     try {
