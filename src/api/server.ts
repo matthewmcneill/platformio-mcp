@@ -323,6 +323,7 @@ export function startPortalServer(defaultPort = 8080) {
   });
 
 
+
   app.post("/api/spooler/start", async (req, res) => {
     try {
       const { port, projectDir } = req.body;
