@@ -215,6 +215,7 @@ export function startPortalServer(defaultPort = 8080) {
     }
   });
 
+
   app.get("/api/projects/config", async (req, res) => {
     try {
       const { projectDir } = req.query;
@@ -360,6 +361,7 @@ export function startPortalServer(defaultPort = 8080) {
       res.status(500).json({ error: e.message });
     }
   });
+
 
   app.post("/api/spooler/start", async (req, res) => {
     try {
