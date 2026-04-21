@@ -20,7 +20,9 @@ import { BuildError, PlatformIOError } from "../utils/errors.js";
 import { parseStderrErrors } from "../utils/errors.js";
 import { isBuildActive } from "../utils/process-manager.js";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { tailFileBounded } from "../utils/tail.js";
 
 
 /**
@@ -62,8 +64,8 @@ export async function buildProject(
       background
     });
 
-    if (background) {
-      return result as BuildResult;
+    if ('status' in result) {
+      return result as unknown as BuildResult;
     }
 
     const success = result.exitCode === 0;
@@ -123,8 +125,8 @@ export async function cleanProject(projectDir: string, background?: boolean): Pr
       },
     );
 
-    if (background) {
-      return result;
+    if ('status' in result) {
+      return result as unknown as CleanResult;
     }
 
     const success = result.exitCode === 0;
@@ -184,6 +186,10 @@ export async function buildTarget(
       projectDir: validatedPath,
       timeout: 600000,
     });
+
+    if ('status' in result) {
+      return result as unknown as BuildResult;
+    }
 
     const success = result.exitCode === 0;
     const errors = success ? undefined : parseStderrErrors(result.finalOutput);
@@ -248,7 +254,7 @@ export async function listTargets(
       timeout: 30000,
     });
 
-    if (result.exitCode !== 0) {
+    if ((result as any).exitCode !== 0) {
       throw new BuildError("Failed to list targets", {
         projectDir,
         stderr: result.stderr,
@@ -285,7 +291,7 @@ export async function listTargets(
  * Polling tool to check background task status and return recent logs.
  */
 export async function checkTaskStatus(projectDir?: string) {
-  const baseDir = projectDir || process.cwd();
+  const baseDir = projectDir || os.tmpdir();
   const WORKSPACE_DIR = ".pio-mcp-workspace";
   const LOGS_DIR = "build_logs";
   const logFile = path.join(baseDir, WORKSPACE_DIR, LOGS_DIR, "latest-build.log");
@@ -295,8 +301,7 @@ export async function checkTaskStatus(projectDir?: string) {
   let finalOutput = "";
   if (fs.existsSync(logFile)) {
     try {
-      const content = fs.readFileSync(logFile, "utf-8");
-      const lines = content.split("\n");
+      const lines = await tailFileBounded(logFile, 512 * 1024);
       if (active) {
         finalOutput = lines.slice(-30).join("\n");
       } else {

@@ -14,6 +14,7 @@
 
 import { execFile, spawn, ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
@@ -301,7 +302,7 @@ export class PlatformIOExecutor {
    * @param options - Execution options including working directory, environment overrides, and fake TTY bridging.
    * @returns The spawned ChildProcess instance.
    */
-  spawn(
+  async spawn(
     command: string,
     args: string[],
     options: {
@@ -311,7 +312,7 @@ export class PlatformIOExecutor {
       detached?: boolean;
       stdio?: any;
     } = {},
-  ): ChildProcess {
+  ): Promise<ChildProcess> {
     let pioBinary = "pio";
     let pioArgs = [command, ...args];
 
@@ -340,7 +341,7 @@ export class PlatformIOExecutor {
     try {
       const logDir = path.join(__dirname, "..", "logs");
       if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-      fs.appendFileSync(
+      await fs.promises.appendFile(
         path.join(logDir, "mcp-internal.log"),
         `[${new Date().toISOString()}] [Spooler Executor] Spawning: ${fullCmd}\n`,
       );
@@ -369,15 +370,43 @@ export const platformioExecutor = new PlatformIOExecutor();
  * Resolves the absolute path to the PlatformIO binary.
  * Required for tools like 'script' that don't perform PATH resolution.
  */
+import { execSync } from "node:child_process";
+
+// ... Inside resolvePioPath
+
 function resolvePioPath(): string {
+  // Attempt to use system PATH natively first
+  try {
+    const whichCmd = os.platform() === "win32" ? "where pio" : "command -v pio";
+    const out = execSync(whichCmd, { stdio: "pipe" }).toString().trim();
+    if (out) {
+      // Windows 'where' can return multiple paths, take the first valid one
+      const paths = out.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+      for (const p of paths) {
+        if (fs.existsSync(p)) return p;
+      }
+    }
+  } catch (e) {
+    // Ignore error if command -v OR where fails (e.g. not in PATH)
+  }
+
+  // Native check failed, fallback to extensive hardcoded probes
+  if (os.platform() === "win32") {
+    const winCandidate = path.join(os.homedir(), ".platformio", "penv", "Scripts", "pio.exe");
+    if (fs.existsSync(winCandidate)) return winCandidate;
+    return "pio"; // Fallback to PATH blindly
+  }
+
   const candidates = [
     "/usr/local/bin/pio",
     "/opt/homebrew/bin/pio",
     "/usr/bin/pio",
     "/bin/pio",
+    path.join(os.homedir(), ".platformio", "penv", "bin", "pio"),
   ];
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  return "pio"; // Fallback to PATH
+  
+  return "pio"; // Ultimate fallback
 }

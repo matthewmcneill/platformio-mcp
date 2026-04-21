@@ -9,6 +9,7 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { validateSerialPort, validateBaudRate } from "../utils/validation.js";
 import { PlatformIOError } from "../utils/errors.js";
@@ -17,26 +18,15 @@ import { getFirstDevice } from "./devices.js";
 import { registerPioMonitorPid, killPioMonitorByPort } from "../utils/process-manager.js";
 import { platformioExecutor } from "../platformio.js";
 import { portalEvents } from "../api/events.js";
+import { logDiagnostic as logDiag } from "../utils/logger.js";
+import { tailFileBounded } from "../utils/tail.js";
 
 const WORKSPACE_DIR = ".pio-mcp-workspace";
 const LOGS_DIR = "serial_logs";
 
 function getLogDir(projectDir?: string): string {
-  const baseDir = projectDir || process.cwd();
+  const baseDir = projectDir || os.tmpdir();
   return path.join(baseDir, WORKSPACE_DIR, LOGS_DIR);
-}
-
-function logDiag(msg: string, projectDir?: string) {
-  const baseDir = projectDir || process.cwd();
-  const workspaceDir = path.join(baseDir, WORKSPACE_DIR);
-  const diagLog = path.join(workspaceDir, "mcp-internal.log");
-  const timestamp = new Date().toISOString();
-  const line = `[${timestamp}] ${msg}\n`;
-  if (!fs.existsSync(workspaceDir)) {
-    fs.mkdirSync(workspaceDir, { recursive: true });
-  }
-  fs.appendFileSync(diagLog, line);
-  console.error(msg);
 }
 
 /**
@@ -63,23 +53,36 @@ export function getSpoolerStates() {
  *
  * @param maxHistory - Maximum total bounded files to retain.
  */
-function rotateLogs(targetDir: string, maxHistory = 30) {
+async function rotateLogs(targetDir: string, maxHistory = 30) {
   if (!fs.existsSync(targetDir)) return;
-  const files = fs
+  const fileNames = fs
     .readdirSync(targetDir)
-    .filter((f) => f.startsWith("device-monitor-") && f.endsWith(".log"))
-    .map((f) => ({
-      name: f,
-      path: path.join(targetDir, f),
-      ctime: fs.statSync(path.join(targetDir, f)).ctime.getTime(),
-    }))
-    .sort((a, b) => b.ctime - a.ctime); // Newest first
+    .filter((f) => f.startsWith("device-monitor-") && f.endsWith(".log"));
 
-  if (files.length > maxHistory) {
-    const toDelete = files.slice(maxHistory);
+  const files = await Promise.all(
+    fileNames.map(async (name) => {
+      const filePath = path.join(targetDir, name);
+      try {
+        const stat = await fs.promises.stat(filePath);
+        return {
+          name,
+          path: filePath,
+          ctime: stat.ctime.getTime(),
+        };
+      } catch (e) {
+        return null;
+      }
+    })
+  );
+
+  const validFiles = files.filter((f): f is NonNullable<typeof f> => f !== null);
+  validFiles.sort((a, b) => b.ctime - a.ctime); // Newest first
+
+  if (validFiles.length > maxHistory) {
+    const toDelete = validFiles.slice(maxHistory);
     for (const f of toDelete) {
       try {
-        fs.unlinkSync(f.path);
+        await fs.promises.unlink(f.path);
       } catch (e) {}
     }
   }
@@ -115,10 +118,10 @@ export async function stopMonitor(port: string, projectDir?: string) {
 /**
  * Utility to generate a fresh log file path for a port.
  */
-function rotateSpoolerStreams(projectDir?: string) {
+async function rotateSpoolerStreams(projectDir?: string) {
   const targetDir = getLogDir(projectDir);
 
-  rotateLogs(targetDir, 30);
+  await rotateLogs(targetDir, 30);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const logFile = path.join(targetDir, `device-monitor-${timestamp}.log`);
@@ -146,10 +149,8 @@ async function spawnPioMonitor(targetPort: string, projectDir?: string) {
   logDiag(`[Spooler] Spawning pio monitor (Env: ${daemon.environment || "None"}) via executor for ${targetPort}`, projectDir);
 
   // Instead of node managing the streams via stdout.on, we pass the file descriptor directly to the OS.
-  // This achieves direct-to-disk spooling and lets the daemon survive if the MCP server crashes.
   const outFd = fs.openSync(daemon.logFile, 'a');
-  
-  const proc = platformioExecutor.spawn("device", ["monitor", ...monitorArgs], {
+  const proc = await platformioExecutor.spawn("device", ["monitor", ...monitorArgs], {
     detached: true,
     useFakeTty: true,
     stdio: ['ignore', outFd, outFd]
@@ -157,7 +158,7 @@ async function spawnPioMonitor(targetPort: string, projectDir?: string) {
 
   if (proc.pid) {
     // Record PID to workspace tracker
-    registerPioMonitorPid(targetPort, proc.pid, projectDir);
+    await registerPioMonitorPid(targetPort, proc.pid, projectDir);
   }
 
   // Symlink or copy to 'latest-monitor.log' for easy querying
@@ -166,8 +167,8 @@ async function spawnPioMonitor(targetPort: string, projectDir?: string) {
   try {
     if (fs.existsSync(latestLog)) fs.unlinkSync(latestLog);
     // On Unix, a symlink is best. On Windows it might require admin, so hardlink or just copying is safer.
-    // For simplicity globally we'll just hardlink to the logFile.
-    fs.linkSync(daemon.logFile, latestLog);
+    // Soft link is robust across different mounted volumes
+    fs.symlinkSync(daemon.logFile, latestLog);
   } catch (e) {
     logDiag(`[Spooler] Failed to link latest-monitor.log: ${e}`, projectDir);
   }
@@ -228,7 +229,7 @@ export async function startMonitor(
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  const { logFile } = rotateSpoolerStreams(projectDir);
+  const { logFile } = await rotateSpoolerStreams(projectDir);
 
   portSemaphoreManager.claimPort(activePort, "Monitor Daemon");
 
@@ -292,8 +293,7 @@ export async function queryLogs(
     };
   }
 
-  const content = fs.readFileSync(targetFile, "utf8");
-  let outputLines = content.split("\n");
+  let outputLines = await tailFileBounded(targetFile);
 
   if (searchPattern) {
     try {

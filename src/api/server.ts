@@ -12,6 +12,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import path from "path";
+import rateLimit from "express-rate-limit";
 import { fileURLToPath } from "url";
 import crypto from "node:crypto";
 import { portalEvents } from "./events.js";
@@ -24,6 +25,8 @@ import { listDevices } from "../tools/devices.js";
 import { exec } from "child_process";
 import fs from "node:fs";
 import { hardwareLockManager } from "../utils/lock-manager.js";
+import { isBuildActive } from "../utils/process-manager.js";
+import { tailFileBounded } from "../utils/tail.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,7 +109,20 @@ export function startPortalServer(defaultPort = 8080) {
   app.use(cors(corsOptions));
   app.use(express.json());
 
+  // Unauthenticated health ping for deployment orchestrators
+  app.get("/healthz", (_req, res) => {
+    res.status(200).json({ status: "alive" });
+  });
+
   // REST Auth Middleware restricting access to /api endpoints
+  const apiLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    limit: 100,
+    message: { error: "Too many requests from this IP, please try again after 5 minutes" }
+  });
+
+  app.use("/api", apiLimiter);
+
   app.use("/api", (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || authHeader !== `Bearer ${PORTAL_AUTH_TOKEN}`) {
@@ -127,12 +143,20 @@ export function startPortalServer(defaultPort = 8080) {
 
   app.post("/api/spooler/start", async (req, res) => {
     try {
-      if (hardwareLockManager.getLockStatus().isLocked) {
-        throw new Error(
-          "Hardware queue is currently locked by an active agent operation.",
-        );
-      }
       const { port, projectDir } = req.body;
+      const lockStatus = hardwareLockManager.getLockStatus();
+      
+      if (lockStatus.isLocked) {
+        if (!isBuildActive(projectDir)) {
+          // Orphaned explicit lock detected (agent forgot to release or crashed).
+          // Auto-evict the stale lock so the UI isn't permanently bricked.
+          hardwareLockManager.releaseLock(lockStatus.sessionId!);
+        } else {
+          throw new Error(
+            "Hardware queue is currently locked by an active agent operation.",
+          );
+        }
+      }
       const result = await startMonitor(
         port,
         115200,
@@ -179,7 +203,7 @@ export function startPortalServer(defaultPort = 8080) {
   const webDistPath = path.join(__dirname, "..", "..", "web", "dist");
   app.use(express.static(webDistPath));
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     socket.emit("connection_established", {
       message: "Connected to PIO MCP Backend",
     });
@@ -193,12 +217,14 @@ export function startPortalServer(defaultPort = 8080) {
     for (const [port, daemon] of Object.entries(spoolers)) {
       if (daemon.logFile && fs.existsSync(daemon.logFile)) {
         try {
-          const content = fs.readFileSync(daemon.logFile, "utf8");
-          const lines = content.split("\n").slice(-50);
+          socket.emit("serial_clear", { port });
+
+          const lines = await tailFileBounded(daemon.logFile);
+          const tailLines = lines.slice(-50);
           socket.emit("serial_log", {
             timestamp: Date.now(),
             port,
-            data: lines.join("\n")
+            data: tailLines.join("\n")
           });
         } catch (e) {}
       }
@@ -221,9 +247,9 @@ export function startPortalServer(defaultPort = 8080) {
       const activityLogPath = path.join(activeWorkspace, ".pio-mcp-workspace", "agent_activities.jsonl");
       if (fs.existsSync(activityLogPath)) {
         try {
-          const content = fs.readFileSync(activityLogPath, "utf8");
-          const lines = content.trim().split("\n").slice(-100);
-          for (const line of lines) {
+          const lines = await tailFileBounded(activityLogPath);
+          const tailLines = lines.slice(-100);
+          for (const line of tailLines) {
             if (line.trim()) {
               socket.emit("agent_activity", JSON.parse(line));
             }
@@ -239,11 +265,14 @@ export function startPortalServer(defaultPort = 8080) {
           logFile: latestBuildLog,
         });
 
+        // Clear existing local state on frontend to prevent duplicates across reconnects
+        socket.emit("build_clear", { logFile: latestBuildLog });
+
         // Hydrate last 50 lines of build log
         try {
-          const content = fs.readFileSync(latestBuildLog, "utf8");
-          const lines = content.split("\n").slice(-50);
-          for (const line of lines) {
+          const lines = await tailFileBounded(latestBuildLog);
+          const tailLines = lines.slice(-50);
+          for (const line of tailLines) {
             if (line.trim()) {
               socket.emit("build_log", {
                 timestamp: Date.now(),

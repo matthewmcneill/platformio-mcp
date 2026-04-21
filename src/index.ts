@@ -58,8 +58,10 @@ import { killAllTrackedProcesses } from "./utils/process-manager.js";
 import { LOCKS_DIR } from "./utils/paths.js";
 import fs from "node:fs";
 import path from "node:path";
+import { logDiagnostic as logDiag } from "./utils/logger.js";
 import { getDashboardStatus } from "./api/server.js";
 import { portalEvents } from "./api/events.js";
+import crypto from "node:crypto";
 
 /**
  * Main PlatformIO MCP Server instance configuration.
@@ -172,6 +174,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Agent session ID for pipeline lock validation",
             },
+            verbose: {
+              type: "boolean",
+              description:
+                "If true, returns the complete verbose build log in the result instead of truncating it on success",
+            },
+            background: {
+              type: "boolean",
+              description:
+                "If true, dispatches the compilation to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently.",
+            },
           },
           required: ["projectDir"],
         },
@@ -190,6 +202,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             sessionId: {
               type: "string",
               description: "Agent session ID for pipeline lock validation",
+            },
+            background: {
+              type: "boolean",
+              description:
+                "If true, dispatches the long-running execution to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently.",
             },
           },
           required: ["projectDir"],
@@ -224,6 +241,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 "If true, returns the complete verbose upload log in the result instead of truncating it",
             },
+            background: {
+              type: "boolean",
+              description:
+                "If true, dispatches the compilation to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently.",
+            },
+            start_monitor: {
+              type: "boolean",
+              description: "If true, automatically starts the background serial monitor after a successful upload, handling OS-level port re-enumeration."
+            },
           },
           required: ["projectDir"],
         },
@@ -256,6 +282,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "boolean",
               description:
                 "If true, returns the complete verbose upload log in the result instead of truncating it",
+            },
+            background: {
+              type: "boolean",
+              description:
+                "If true, dispatches the compilation to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently.",
+            },
+            start_monitor: {
+              type: "boolean",
+              description: "If true, automatically starts the background serial monitor after a successful upload, handling OS-level port re-enumeration."
             },
           },
           required: ["projectDir"],
@@ -441,6 +476,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     portalEvents.emitWorkspaceState(args.projectDir);
   }
 
+  const activityId = crypto.randomUUID();
+  portalEvents.emitActivity(name, args, 'running', activityId);
+
   try {
     const response = await (async () => {
       switch (name) {
@@ -543,7 +581,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             params.port,
             params.environment,
             params.verbose,
-            params.background
+            params.background,
+            args.start_monitor
           );
         const result = params.sessionId
           ? (hardwareLockManager.requireLock(params.sessionId),
@@ -569,7 +608,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             params.port,
             params.environment,
             params.verbose,
-            params.background
+            params.background,
+            args.start_monitor
           );
         const result = params.sessionId
           ? (hardwareLockManager.requireLock(params.sessionId),
@@ -685,9 +725,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "start_monitor": {
         const params = StartMonitorParamsSchema.parse(args);
-        const executeTask = () =>
-          startMonitor(params.port, params.baudRate, params.projectDir, params.environment);
-        const result = await hardwareLockManager.withImplicitLock(executeTask);
+        const result = await startMonitor(params.port, params.baudRate, params.projectDir, params.environment);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -695,11 +733,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "stop_monitor": {
         const params = StopMonitorParamsSchema.parse(args);
-        const executeTask = async () => {
-          await stopMonitor(params.port, params.projectDir);
-          return { success: true, message: `Stopped monitor on ${params.port}` };
-        };
-        const result = await hardwareLockManager.withImplicitLock(executeTask);
+        await stopMonitor(params.port, params.projectDir);
+        const result = { success: true, message: `Stopped monitor on ${params.port}` };
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -733,7 +768,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
           }
         } catch (e) {
-          console.error(`Failed to wipe semaphores: ${e}`);
+          logDiag(`Failed to wipe semaphores: ${e}`, args.projectDir);
         }
 
         return {
@@ -762,10 +797,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     })();
     
-    portalEvents.emitActivity(name, args, true);
+    portalEvents.emitActivity(name, args, 'success', activityId);
     return response;
   } catch (error) {
-    portalEvents.emitActivity(name, args, false);
+    portalEvents.emitActivity(name, args, 'error', activityId);
     const errorMessage = formatPlatformIOError(error);
     return {
       content: [
@@ -784,11 +819,11 @@ async function main() {
   // Check if PlatformIO is installed
   const isInstalled = await checkPlatformIOInstalled();
   if (!isInstalled) {
-    console.error(
-      "Warning: PlatformIO CLI not found. Please install it from https://platformio.org/install/cli",
+    logDiag(
+      "Warning: PlatformIO CLI not found. Please install it from https://platformio.org/install/cli"
     );
-    console.error(
-      "The server will start but commands will fail until PlatformIO is installed.\n",
+    logDiag(
+      "The server will start but commands will fail until PlatformIO is installed.\n"
     );
   }
 
@@ -796,14 +831,14 @@ async function main() {
   await server.connect(transport);
 
   if (process.argv.includes("--open-dashboard-on-start") || process.env.PIO_MCP_OPEN_DASH_ON_START === "true") {
-    getDashboardStatus(true).catch((e) => console.error(`[Dashboard] ${e.message}`));
+    getDashboardStatus(true).catch((e) => logDiag(`[Dashboard] ${e.message}`));
   }
 
-  console.error("PlatformIO MCP Server running on stdio");
-  console.error("Server supports 1000+ boards across 30+ platforms");
+  logDiag("PlatformIO MCP Server running on stdio");
+  logDiag("Server supports 1000+ boards across 30+ platforms");
 }
 
 main().catch((error) => {
-  console.error("Fatal error:", error);
+  logDiag(`Fatal error: ${error}`);
   process.exit(1);
 });

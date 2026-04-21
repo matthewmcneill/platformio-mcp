@@ -20,14 +20,17 @@ class PortalEventEmitter extends EventEmitter {
    * Emit an agentic activity event.
    * @param toolName The name of the tool called
    * @param args The arguments passed to the tool
-   * @param success Whether the execution was successful
+   * @param status The execution status (running, success, error)
+   * @param activityId A unique identifier for this activity
    */
-  emitActivity(toolName: string, args: Record<string, any>, success: boolean) {
+  async emitActivity(toolName: string, args: Record<string, any>, status: 'running' | 'success' | 'error', activityId: string) {
     const payload = {
       timestamp: Date.now(),
       toolName,
       args,
-      success,
+      success: status === 'success', // Kept for backwards compatibility
+      status,
+      activityId,
     };
     this.emit("agent_activity", payload);
 
@@ -38,7 +41,13 @@ class PortalEventEmitter extends EventEmitter {
           fs.mkdirSync(workspaceDir, { recursive: true });
         }
         const logFile = path.join(workspaceDir, "agent_activities.jsonl");
-        fs.appendFileSync(logFile, JSON.stringify(payload) + "\n");
+        try {
+          const stat = await fs.promises.stat(logFile);
+          if (stat.size > 2 * 1024 * 1024) {
+            await fs.promises.rename(logFile, logFile + ".1");
+          }
+        } catch (e) {}
+        await fs.promises.appendFile(logFile, JSON.stringify(payload) + "\n");
       } catch (e) {}
     }
   }

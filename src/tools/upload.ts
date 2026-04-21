@@ -11,6 +11,7 @@
 
 import { executeWithSpooling } from "../utils/spooler.js";
 import type { UploadResult } from "../types.js";
+import { startMonitor } from "./monitor.js";
 import {
   validateProjectPath,
   validateEnvironmentName,
@@ -19,6 +20,8 @@ import {
 
 import { UploadError, PlatformIOError } from "../utils/errors.js";
 import { parseStderrErrors } from "../utils/errors.js";
+import { stopMonitor } from "./monitor.js";
+import { portSemaphoreManager } from "../utils/semaphore.js";
 
 /**
  * Uploads a SPIFFS/LittleFS filesystem image to a target device.
@@ -28,7 +31,7 @@ import { parseStderrErrors } from "../utils/errors.js";
  * @param environment - Optional specific environment target.
  * @param verbose - If true, captures complete output without truncation.
  * @param background - Executes asynchronously in the background.
- * @returns Upload completion status.
+ * @returns The structured UploadResult containing success flag, port, and standard output/errors.
  */
 export async function uploadFilesystem(
   projectDir: string,
@@ -36,6 +39,7 @@ export async function uploadFilesystem(
   environment?: string,
   verbose?: boolean,
   background?: boolean,
+  startMonitorAfter?: boolean,
 ): Promise<UploadResult> {
   const validatedPath = validateProjectPath(projectDir);
 
@@ -51,8 +55,10 @@ export async function uploadFilesystem(
 
   try {
     let activePort = port;
+    let hwid: string | undefined;
+    const { getFirstDevice, findDeviceByPort, waitForDeviceByHwid } = await import("./devices.js");
+
     if (!activePort) {
-      const { getFirstDevice } = await import("./devices.js");
       const device = await getFirstDevice();
       if (!device)
         throw new PlatformIOError(
@@ -60,10 +66,17 @@ export async function uploadFilesystem(
           "PORT_NOT_FOUND",
         );
       activePort = device.port;
+      hwid = device.hwid;
+    } else {
+      const device = await findDeviceByPort(activePort);
+      hwid = device?.hwid;
     }
 
     const uploadArgs: string[] = ["run", "--target", "uploadfs"];
     if (environment) uploadArgs.push("--environment", environment);
+
+    await stopMonitor(activePort, projectDir);
+    portSemaphoreManager.claimPort(activePort, "Filesystem Upload");
 
     const uploadResult = await executeWithSpooling(
       "run",
@@ -72,12 +85,34 @@ export async function uploadFilesystem(
         cwd: validatedPath,
         projectDir: validatedPath,
         timeout: 600000,
-        background
+        background,
+        activePort,
+        onSuccess: startMonitorAfter ? async () => {
+          if (hwid) {
+            const newPort = await waitForDeviceByHwid(hwid, 10000, (msg) => console.error(msg.trim()));
+            if (newPort) {
+              await startMonitor(newPort, undefined, validatedPath, environment);
+              return;
+            }
+          }
+          
+          let device = null;
+          for (let i = 0; i < 20; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            device = await getFirstDevice();
+            if (device) break;
+          }
+          if (device) {
+            await startMonitor(device.port, undefined, validatedPath, environment);
+          } else {
+            console.error(`[Spooler Diagnostic] Auto-monitor failed: Device did not re-enumerate within 10 seconds.`);
+          }
+        } : undefined
       },
     );
 
-    if (background) {
-      return uploadResult as UploadResult;
+    if ('status' in uploadResult) {
+      return uploadResult as unknown as UploadResult;
     }
 
     const uploadSuccess = uploadResult.exitCode === 0;
@@ -114,7 +149,7 @@ export async function uploadFilesystem(
  * @param environment - Optional specific environment target.
  * @param verbose - If true, captures complete output without truncation.
  * @param background - Executes asynchronously in the background.
- * @returns Upload completion status.
+ * @returns The structured UploadResult containing success flag, port, and standard output/errors.
  */
 export async function uploadFirmware(
   projectDir: string,
@@ -122,6 +157,7 @@ export async function uploadFirmware(
   environment?: string,
   verbose?: boolean,
   background?: boolean,
+  startMonitorAfter?: boolean,
 ): Promise<UploadResult> {
   const validatedPath = validateProjectPath(projectDir);
 
@@ -137,8 +173,10 @@ export async function uploadFirmware(
 
   try {
     let activePort = port;
+    let hwid: string | undefined;
+    const { getFirstDevice, findDeviceByPort, waitForDeviceByHwid } = await import("./devices.js");
+
     if (!activePort) {
-      const { getFirstDevice } = await import("./devices.js");
       const device = await getFirstDevice();
       if (!device)
         throw new PlatformIOError(
@@ -146,10 +184,17 @@ export async function uploadFirmware(
           "PORT_NOT_FOUND",
         );
       activePort = device.port;
+      hwid = device.hwid;
+    } else {
+      const device = await findDeviceByPort(activePort);
+      hwid = device?.hwid;
     }
 
     const uploadArgs: string[] = ["run", "--target", "upload"];
     if (environment) uploadArgs.push("--environment", environment);
+
+    await stopMonitor(activePort, projectDir);
+    portSemaphoreManager.claimPort(activePort, "Firmware Upload");
 
     const uploadResult = await executeWithSpooling(
       "run",
@@ -158,12 +203,34 @@ export async function uploadFirmware(
         cwd: validatedPath,
         projectDir: validatedPath,
         timeout: 600000,
-        background
+        background,
+        activePort,
+        onSuccess: startMonitorAfter ? async () => {
+          if (hwid) {
+            const newPort = await waitForDeviceByHwid(hwid, 10000, (msg) => console.error(msg.trim()));
+            if (newPort) {
+              await startMonitor(newPort, undefined, validatedPath, environment);
+              return;
+            }
+          }
+
+          let device = null;
+          for (let i = 0; i < 20; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            device = await getFirstDevice();
+            if (device) break;
+          }
+          if (device) {
+            await startMonitor(device.port, undefined, validatedPath, environment);
+          } else {
+            console.error(`[Spooler Diagnostic] Auto-monitor failed: Device did not re-enumerate within 10 seconds.`);
+          }
+        } : undefined
       },
     );
 
-    if (background) {
-      return uploadResult as UploadResult;
+    if ('status' in uploadResult) {
+      return uploadResult as unknown as UploadResult;
     }
 
     const uploadSuccess = uploadResult.exitCode === 0;
@@ -200,7 +267,7 @@ export async function uploadFirmware(
  * @param environment - Optional specific environment target.
  * @param verbose - If true, captures complete output without truncation.
  * @param background - Executes asynchronously in the background.
- * @returns Upload completion status.
+ * @returns The structured UploadResult containing success flag, port, and standard output/errors.
  */
 export async function uploadAndMonitor(
   projectDir: string,
@@ -208,8 +275,9 @@ export async function uploadAndMonitor(
   environment?: string,
   verbose?: boolean,
   background?: boolean,
+  startMonitorAfter?: boolean,
 ): Promise<UploadResult> {
-  return uploadFirmware(projectDir, port, environment, verbose, background);
+  return uploadFirmware(projectDir, port, environment, verbose, background, startMonitorAfter);
 }
 
 /**
@@ -220,7 +288,7 @@ export async function uploadAndMonitor(
  * @param environment - Optional specific environment target.
  * @param verbose - If true, captures complete output without truncation.
  * @param background - Executes asynchronously in the background.
- * @returns Build and Upload sequential status.
+ * @returns The structured UploadResult containing success flag, port, and standard output/errors.
  */
 export async function buildAndUpload(
   projectDir: string,
@@ -228,6 +296,7 @@ export async function buildAndUpload(
   environment?: string,
   verbose?: boolean,
   background?: boolean,
+  startMonitorAfter?: boolean,
 ): Promise<UploadResult> {
-  return uploadFirmware(projectDir, port, environment, verbose, background);
+  return uploadFirmware(projectDir, port, environment, verbose, background, startMonitorAfter);
 }

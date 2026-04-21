@@ -8,16 +8,19 @@
  * - executeWithSpooling: Spawns child processes mapped to disk limits.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { platformioExecutor } from "../platformio.js";
 import { registerBuildPid, unregisterBuildPid, isBuildActive } from "./process-manager.js";
 import { portalEvents } from "../api/events.js";
+import { portSemaphoreManager } from "./semaphore.js";
+import { tailFileBounded } from "./tail.js";
 
 const WORKSPACE_DIR = ".pio-mcp-workspace";
 const LOGS_DIR = "build_logs";
 
 function getLogDir(projectDir?: string): string {
-  const baseDir = projectDir || process.cwd();
+  const baseDir = projectDir || os.tmpdir();
   return path.join(baseDir, WORKSPACE_DIR, LOGS_DIR);
 }
 
@@ -50,13 +53,18 @@ export function rotateLogs(targetDir: string, prefix: string, maxHistory = 30) {
   }
 }
 
+export interface BuildStreamRotation {
+  logFile: string; // The absolute path to the newly rotated log file
+  latestLog: string; // The absolute path to the symlink pointing to the newest log
+}
+
 /**
  * Automatically prunes historical build payload output files from the local environment block.
  *
  * @param projectDir - Associated workspace to scope clearance into.
- * @returns Absolute routing map to latest runtime traces.
+ * @returns The structured paths indicating where the new logs are actively spooling.
  */
-export function rotateBuildStreams(projectDir?: string) {
+export function rotateBuildStreams(projectDir?: string): BuildStreamRotation {
   const targetDir = getLogDir(projectDir);
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
@@ -71,6 +79,20 @@ export function rotateBuildStreams(projectDir?: string) {
   return { logFile, latestLog };
 }
 
+export interface SpoolingBackgroundResult {
+  status: string; // The operational status indicating background dispatch
+  message: string; // A descriptive message about the background task
+  pid?: number; // The process ID of the detached background process
+}
+
+export interface SpoolingForegroundResult {
+  exitCode: number; // The exit code returned by the synchronous process
+  finalOutput: string; // The sliced output tail retrieved from the log spool
+  fullLogPath: string; // The absolute path referencing the complete log file
+}
+
+export type SpoolingResult = SpoolingBackgroundResult | SpoolingForegroundResult;
+
 /**
  * Wraps child process invocation forcing its runtime payload exclusively through 
  * an active offline disk file context instead of active NodeJS stream memory.
@@ -78,13 +100,13 @@ export function rotateBuildStreams(projectDir?: string) {
  * @param command - Core executing binary token.
  * @param args - CLI arguments string array.
  * @param options - Operational environment context overriding execution behavior.
- * @returns Complete exit code metadata, trace locations, and completion summaries.
+ * @returns A structured result containing either background runtime metadata or foreground process completion details.
  */
 export async function executeWithSpooling(
   command: string,
   args: string[],
-  options: { cwd: string; projectDir?: string; timeout?: number; background?: boolean }
-): Promise<any> {
+  options: { cwd: string; projectDir?: string; timeout?: number; background?: boolean; activePort?: string; onSuccess?: () => Promise<void> }
+): Promise<SpoolingResult> {
   const projectArea = options.projectDir ?? options.cwd;
 
   // 1. Crash resilience tracking
@@ -97,20 +119,20 @@ export async function executeWithSpooling(
   const outFd = fs.openSync(logFile, "a");
 
   // 3. Spawning
-  const proc = platformioExecutor.spawn(command, args, {
+  const proc = await platformioExecutor.spawn(command, args, {
     cwd: options.cwd,
     stdio: ["ignore", outFd, outFd],
     detached: false
   });
 
   if (proc.pid) {
-    registerBuildPid(proc.pid, projectArea);
+    await registerBuildPid(proc.pid, projectArea);
   }
 
   try {
     if (fs.existsSync(latestLog)) fs.unlinkSync(latestLog);
     // Standard link is secure and visible to OS natively
-    fs.linkSync(logFile, latestLog);
+    fs.symlinkSync(logFile, latestLog);
   } catch {}
 
   // UI Portal File Tailing
@@ -142,7 +164,17 @@ export async function executeWithSpooling(
     const p = new Promise<number>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (proc.pid) {
-          try { process.kill(proc.pid, 'SIGKILL'); } catch {}
+          try { 
+            process.kill(proc.pid, 'SIGTERM'); 
+            setTimeout(() => {
+              try {
+                if (proc.pid) {
+                  process.kill(proc.pid, 0);
+                  process.kill(proc.pid, 'SIGKILL');
+                }
+              } catch {}
+            }, 1000);
+          } catch {}
         }
         reject(new Error(`Command timed out after ${timeoutMs}ms`));
       }, timeoutMs);
@@ -157,11 +189,23 @@ export async function executeWithSpooling(
         resolve(code ?? 1);
       });
     });
-    
-    p.catch(e => console.error(`[Background Task Error]: ${e.message}`)).finally(() => {
-      unregisterBuildPid(projectArea);
+
+    p.catch(e => {
+      console.error(`[Background Task Error]: ${e.message}`);
+      return 1;
+    }).then(async (code) => {
+      await unregisterBuildPid(projectArea);
+      if (options.activePort) portSemaphoreManager.releasePort(options.activePort);
       try { fs.closeSync(outFd); } catch {}
       if (watcher) { try { watcher.close(); } catch {} }
+
+      if (code === 0 && options.onSuccess) {
+        try {
+          await options.onSuccess();
+        } catch (e: any) {
+          console.error(`[Spooler Diagnostic] Background onSuccess hook failed: ${e.message}`);
+        }
+      }
     });
 
     return { status: "running", message: "Task dispatched to background.", pid: proc.pid };
@@ -170,7 +214,17 @@ export async function executeWithSpooling(
   const exitCode = await new Promise<number>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (proc.pid) {
-        try { process.kill(proc.pid, 'SIGKILL'); } catch {}
+        try { 
+          process.kill(proc.pid, 'SIGTERM'); 
+          setTimeout(() => {
+            try {
+              if (proc.pid) {
+                process.kill(proc.pid, 0);
+                process.kill(proc.pid, 'SIGKILL');
+              }
+            } catch {}
+          }, 1000);
+        } catch {}
       }
       reject(new Error(`Command timed out after ${timeoutMs}ms`));
     }, timeoutMs);
@@ -187,7 +241,8 @@ export async function executeWithSpooling(
   });
 
   // Cleanup
-  unregisterBuildPid(projectArea);
+  await unregisterBuildPid(projectArea);
+  if (options.activePort) portSemaphoreManager.releasePort(options.activePort);
   try {
     fs.closeSync(outFd);
   } catch {}
@@ -195,11 +250,18 @@ export async function executeWithSpooling(
     try { watcher.close(); } catch {}
   }
 
+  if (exitCode === 0 && options.onSuccess) {
+    try {
+      await options.onSuccess();
+    } catch (e: any) {
+      console.error(`[Spooler Diagnostic] onSuccess hook failed: ${e.message}`);
+    }
+  }
+
   // 5. Yield contextual snapshot (preventing window bloat)
   let finalOutput = "";
   try {
-    const content = fs.readFileSync(logFile, "utf-8");
-    const lines = content.split("\n");
+    const lines = await tailFileBounded(logFile, 512 * 1024);
     finalOutput = lines.slice(-150).join("\n");
   } catch (e: any) {
     finalOutput = `[Spooler Fetch Error] Could not parse log ending: ${e.message}`;

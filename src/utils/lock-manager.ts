@@ -52,9 +52,14 @@ export class HardwareLockManager {
    * Throws if another session currently holds the lock.
    */
   public acquireLock(sessionId: string, reason?: string): void {
+    if (this.state.isLocked && this.state.sessionId === sessionId) {
+      console.log(`Lock re-entry attempt by session ${sessionId}`);
+      return;
+    }
+
     if (this.state.isLocked && this.state.sessionId !== sessionId) {
       throw new QueueEnforcementError(
-        `Hardware is currently tied up by ${this.state.sessionId || "another session"}. Please queue your task.`,
+        `Hardware is currently tied up by ${this.state.sessionId || "another session"}. If this is a stuck session, run the 'mcp_platformio_reset_server_state' tool.`,
         {
           activeSession: this.state.sessionId,
           activeReason: this.state.reason,
@@ -95,7 +100,7 @@ export class HardwareLockManager {
   public requireLock(sessionId?: string): void {
     if (this.state.isLocked && this.state.sessionId !== sessionId) {
       throw new QueueEnforcementError(
-        `Hardware is currently tied up by session [${this.state.sessionId}]. Please queue your task.`,
+        `Hardware is currently tied up by session [${this.state.sessionId}]. If this is a stuck session, run the 'mcp_platformio_reset_server_state' tool.`,
         {
           activeSession: this.state.sessionId,
           activeReason: this.state.reason,
