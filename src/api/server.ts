@@ -433,7 +433,7 @@ export function startPortalServer(defaultPort = 8080) {
       }
 
       // Provide initial build log state natively mapped to PR 4 structure
-      const latestBuildLog = path.join(activeWorkspace, ".pio-mcp-workspace", "build_logs", "latest-build.log");
+      const latestBuildLog = path.join(activeWorkspace, ".pio-mcp-workspace", "logs", "build", "latest-build.log");
       if (fs.existsSync(latestBuildLog)) {
         socket.emit("build_state", {
           timestamp: Date.now(),

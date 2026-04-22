@@ -402,7 +402,7 @@ export async function listTargets(
 export async function checkTaskStatus(projectDir?: string) {
   const baseDir = projectDir || os.tmpdir();
   const WORKSPACE_DIR = ".pio-mcp-workspace";
-  const LOGS_DIR = "build_logs";
+  const LOGS_DIR = path.join("logs", "build");
   const logFile = path.join(baseDir, WORKSPACE_DIR, LOGS_DIR, "latest-build.log");
   
   const active = isBuildActive(projectDir);
