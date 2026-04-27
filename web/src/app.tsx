@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import WorkspaceCockpit from './components/workspace-cockpit.js';
-
+import CoreShell from './components/CoreShell.js';
+import WorkspaceSwitcher from './components/WorkspaceSwitcher.js';
+import HardwareRack from './components/HardwareRack.js';
+import StatusBar from './components/StatusBar.js';
 // Connect to the background PIO local express server
 const parsedToken = new URLSearchParams(window.location.search).get('token') || '';
 // Detect API base implicitly during local development
@@ -225,24 +228,16 @@ function App() {
   }, []);
 
   return (
-    <WorkspaceCockpit 
-      status={status}
-      commands={commands}
-      buildLogs={buildLogs}
-      buildLogFile={buildLogFile || undefined}
-      serialLogs={serialLogs}
-      spoolerStates={spoolerStates}
-      activeWorkspace={activeWorkspace}
-      lockState={lockState}
-      openTabs={openTabs}
-      setOpenTabs={setOpenTabs}
-      activeTabRef={activeTabRef}
-      setActiveTabRef={setActiveTabRef}
-      historicalLogBuffer={historicalLogBuffer}
-      hardware={hardwareDevices}
-      apiBase={apiBase}
-      token={parsedToken}
-    />
+    <CoreShell>
+      <div className="relative h-full w-full">
+        {/* Temporary layout for V2 Visual Validation */}
+        <div className="absolute top-0 right-0 z-50">
+          <WorkspaceSwitcher />
+        </div>
+        <HardwareRack />
+        <StatusBar />
+      </div>
+    </CoreShell>
   );
 }
 
