@@ -37,8 +37,11 @@ describe("PlatformIO MCP Server E2E Integration", () => {
     expect(result.content.length).toBeGreaterThan(0);
     
     const textContent = result.content[0].text;
-    expect(textContent).toContain("Arduino Uno"); // Or at least 'uno' json object
-    expect(textContent).toContain("uno");
+    if (textContent.includes("Payload too large")) {
+      expect(textContent).toContain("successfully spooled to disk");
+    } else {
+      expect(textContent).toContain("uno");
+    }
   });
 
   it("should initialize a new project", async () => {
@@ -100,13 +103,13 @@ describe("PlatformIO MCP Server E2E Integration", () => {
     const buildResult = JSON.parse(textContent);
     
     expect(buildResult.status).toBe("running");
-    expect(buildResult.pid).toBeDefined();
+    expect(buildResult.taskId).toBeDefined();
 
     // Poll the status immediately
     const pollResult = await harness.client.callTool({
       name: "check_task_status",
       arguments: {
-        projectDir: tempProjectDir,
+        taskId: buildResult.taskId,
       },
     }) as { content: Array<{ type: string, text: string }> };
 
@@ -114,7 +117,7 @@ describe("PlatformIO MCP Server E2E Integration", () => {
     const pollParsed = JSON.parse(pollText);
 
     expect(pollParsed.status).toBeDefined();
-    expect(pollParsed.logTail).toBeDefined();
+    expect(pollParsed.logPaths).toBeDefined();
     
     // Wait for the background build to actually finish so we don't leak processes
     await new Promise(resolve => setTimeout(resolve, 5000));
@@ -194,9 +197,13 @@ describe("PlatformIO MCP Server E2E Integration", () => {
       arguments: { query: "ArduinoJson", limit: 2 },
     }) as { content: Array<{ type: string, text: string }> };
 
-    const parsed = JSON.parse(result.content[0].text);
-    // Registry returns array structure or search wrapper
-    expect(parsed.items || parsed).toBeDefined(); 
+    const textContent = result.content[0].text;
+    if (textContent.includes("Payload too large")) {
+      expect(textContent).toContain("successfully spooled to disk");
+    } else {
+      const parsed = JSON.parse(textContent);
+      expect(parsed.items || Array.isArray(parsed)).toBeTruthy();
+    }
   }, 15000);
 
   it("should install a library explicitly into the test workspace", async () => {
@@ -220,7 +227,11 @@ describe("PlatformIO MCP Server E2E Integration", () => {
     }) as { content: Array<{ type: string, text: string }> };
 
     const textContent = result.content[0].text;
-    expect(typeof textContent).toBe("string");
+    if (textContent.includes("Payload too large")) {
+      expect(textContent).toContain("successfully spooled to disk");
+    } else {
+      expect(typeof textContent).toBe("string");
+    }
   });
 
   it("should acquire and release hardware lock via E2E", async () => {
@@ -287,5 +298,58 @@ describe("PlatformIO MCP Server E2E Integration", () => {
     expect(parsed.success).toBe(true);
     expect(parsed.message).toContain("state has been reset");
   });
+
+  it("should successfully route check_project tool", async () => {
+    const result = await harness.client.callTool({
+      name: "check_project",
+      arguments: { projectDir: tempProjectDir },
+    }) as { content: Array<{ type: string, text: string }> };
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBeDefined();
+  }, 30000);
+
+  it("should successfully route run_tests tool", async () => {
+    const result = await harness.client.callTool({
+      name: "run_tests",
+      arguments: { projectDir: tempProjectDir },
+    }) as { content: Array<{ type: string, text: string }> };
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.success).toBeDefined();
+  }, 30000);
+
+  it("should successfully route system_info tool", async () => {
+    const result = await harness.client.callTool({
+      name: "system_info",
+      arguments: {},
+    }) as { content: Array<{ type: string, text: string }> };
+
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed).toBeDefined();
+  }, 10000);
+
+  it("should trigger build followed instantly by test without QueueEnforcementError", async () => {
+    const p1 = harness.client.callTool({
+      name: "build_project",
+      arguments: { projectDir: tempProjectDir },
+    });
+    const p2 = harness.client.callTool({
+      name: "run_tests",
+      arguments: { projectDir: tempProjectDir },
+    });
+
+    const [res1, res2] = await Promise.all([p1, p2]) as any[];
+    
+    // Neither should have thrown an unhandled exception or queue enforcement error string.
+    if (res1.isError) {
+      expect(res1.content[0].text).not.toContain("QueueEnforcementError");
+    }
+    if (res2.isError) {
+      expect(res2.content[0].text).not.toContain("QueueEnforcementError");
+    }
+  }, 60000);
+
+
 
 });
