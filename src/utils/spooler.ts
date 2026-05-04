@@ -4,27 +4,31 @@
  *
  * Provides:
  * - rotateLogs: Generic log file rotater by prefix.
- * - rotateBuildStreams: Specialized build log rotation.
+ * - rotateSpoolerStreams: Specialized spool log rotation.
  * - executeWithSpooling: Spawns child processes mapped to disk limits.
  */
 import fs from "node:fs";
-import os from "node:os";
+
 import path from "node:path";
 import { platformioExecutor } from "../platformio.js";
 import { registerBuildPid, unregisterBuildPid, isBuildActive } from "./process-manager.js";
 import { portSemaphoreManager } from "./semaphore.js";
 import { tailFileBounded } from "./tail.js";
-import { registerCommand, updateCommandStatus } from "./command-registry.js";
+import { registerCommand, updateTaskStatus } from "./command-registry.js";
 import crypto from "node:crypto";
+import { mcpContext } from "./mcp-context.js";
+import { parseStderrErrors } from "./errors.js";
+
+import { SERVER_DATA_DIR, ensureGlobalDirs } from "./paths.js";
 
 const WORKSPACE_DIR = ".pio-mcp-workspace";
-const LOGS_DIR = "tasks/build_logs";
-
-function getLogDir(projectDir?: string): string {
-  const baseDir = projectDir || os.tmpdir();
-  return path.join(baseDir, WORKSPACE_DIR, LOGS_DIR);
+export function getLogDir(verb: string, projectDir?: string): string {
+  const baseDir = projectDir || SERVER_DATA_DIR;
+  if (!projectDir) ensureGlobalDirs();
+  return path.join(baseDir, WORKSPACE_DIR, "logs", verb);
 }
 import { logDiagnostic as logDiag } from "./logger.js";
+import { portalEvents } from "../api/events.js";
 /**
  * Cleans out old log trace files adhering to an upper boundary limit.
  *
@@ -65,17 +69,18 @@ export interface BuildStreamRotation {
  * @param projectDir - Associated workspace to scope clearance into.
  * @returns The structured paths indicating where the new logs are actively spooling.
  */
-export function rotateBuildStreams(projectDir?: string): BuildStreamRotation {
-  const targetDir = getLogDir(projectDir);
+export function rotateSpoolerStreams(verb: string, projectDir?: string): BuildStreamRotation {
+  const targetDir = getLogDir(verb, projectDir);
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  rotateLogs(targetDir, "build-", 30);
+  rotateLogs(targetDir, `${verb}-`, 30);
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const logFile = path.join(targetDir, `build-${timestamp}.log`);
-  const latestLog = path.join(targetDir, "latest-build.log");
+  const shortHash = crypto.randomBytes(4).toString("hex");
+  const logFile = path.join(targetDir, `${verb}-${timestamp}-${shortHash}.log`);
+  const latestLog = path.join(targetDir, `latest-${verb}.log`);
 
   return { logFile, latestLog };
 }
@@ -84,6 +89,8 @@ export interface SpoolingBackgroundResult {
   status: string; // The operational status indicating background dispatch
   message: string; // A descriptive message about the background task
   pid?: number; // The process ID of the detached background process
+  taskId?: string; // Generated command ID
+  logPaths?: string[]; // Arrays of logs mapping
 }
 
 export interface SpoolingForegroundResult {
@@ -106,7 +113,7 @@ export type SpoolingResult = SpoolingBackgroundResult | SpoolingForegroundResult
 export async function executeWithSpooling(
   command: string,
   args: string[],
-  options: { cwd: string; projectDir?: string; timeout?: number; background?: boolean; activePort?: string; onSuccess?: () => Promise<void> }
+  options: { cwd: string; projectDir?: string; timeout?: number; background?: boolean; activePort?: string; onSuccess?: () => Promise<void>; rootCommandId?: string; artifactType?: "build" | "upload" | "monitor" | "test" | "debug" }
 ): Promise<SpoolingResult> {
   const projectArea = options.projectDir ?? options.cwd;
 
@@ -116,7 +123,8 @@ export async function executeWithSpooling(
   }
 
   // 2. Setup spooling streams
-  const { logFile, latestLog } = rotateBuildStreams(projectArea);
+  const verb = options.artifactType || "build";
+  const { logFile, latestLog } = rotateSpoolerStreams(verb, projectArea);
   const outFd = fs.openSync(logFile, "a");
 
   // 3. Spawning
@@ -126,19 +134,29 @@ export async function executeWithSpooling(
     detached: false
   });
 
-  const commandId = crypto.randomUUID();
+  const ctx = mcpContext.getStore();
+  const commandId = options.rootCommandId || ctx?.activityId || crypto.randomUUID();
+  const taskId = crypto.randomUUID();
+  const artType = options.artifactType || "build";
+  const targetProjectArea = projectArea || ctx?.targetProjectDir;
 
   if (proc.pid) {
-    logDiag(`[Spooler] Spawning task command: \`${command} ${args.join(" ")}\` with Build ID/PID: ${proc.pid}`, projectArea);
-    await registerBuildPid(proc.pid, projectArea);
+    logDiag(`[Spooler] Spawning task command: \`${command} ${args.join(" ")}\` with Build ID/PID: ${proc.pid}`, targetProjectArea);
+    await registerBuildPid(proc.pid, targetProjectArea);
     await registerCommand({
       id: commandId,
+      commandDesc: `PIO Task: ${command} ${args.join(" ")}`,
       timestamp: Date.now(),
-      type: "build",
       status: "running",
-      logFile: logFile,
-      pid: proc.pid
-    }, projectArea).catch(e => logDiag(`[Spooler] Registry fail: ${e.message}`, projectArea));
+      tasks: [{
+        taskId: taskId,
+        type: artType,
+        status: "running",
+        logPaths: [logFile],
+        pid: proc.pid,
+        commandDesc: `pio ${command} ${args.join(" ")}`
+      }]
+    }, targetProjectArea).catch(e => logDiag(`[Spooler] Registry fail: ${e.message}`, targetProjectArea));
   }
 
   try {
@@ -150,7 +168,7 @@ export async function executeWithSpooling(
   // UI Portal File Tailing
   let fileOffset = 0;
   let watcher: fs.FSWatcher | null = null;
-  portalEvents.clearBuildLog(projectArea, logFile);
+  portalEvents.clearTaskLog(targetProjectArea || "global", taskId, [logFile]);
 
   try {
     watcher = fs.watch(logFile, (eventType) => {
@@ -160,7 +178,7 @@ export async function executeWithSpooling(
           if (stat.size > fileOffset) {
             const stream = fs.createReadStream(logFile, { start: fileOffset, end: stat.size - 1 });
             stream.on('data', (chunk) => {
-              portalEvents.emitBuildLog(projectArea, chunk.toString());
+              portalEvents.emitTaskLog(targetProjectArea || "global", taskId, chunk.toString());
             });
             fileOffset = stat.size;
           }
@@ -204,14 +222,24 @@ export async function executeWithSpooling(
 
     p.catch(e => {
       console.error(`[Background Task Error]: ${e.message}`);
-      updateCommandStatus(commandId, { status: "error" }, projectArea).catch(() => {});
+      updateTaskStatus(commandId, taskId, { status: "error", error: e.message }, targetProjectArea).catch(() => {});
       return 1;
     }).then(async (code) => {
-      await updateCommandStatus(commandId, { 
+      let errorMessage = undefined;
+      if (code !== 0) {
+        try {
+          const lines = await tailFileBounded(logFile, 512 * 1024);
+          const errors = parseStderrErrors(lines.join("\n"));
+          if (errors && errors.length > 0) errorMessage = errors[0];
+        } catch {}
+      }
+      
+      await updateTaskStatus(commandId, taskId, { 
         status: code === 0 ? "success" : "error",
-        exitCode: code 
-      }, projectArea).catch(() => {});
-      await unregisterBuildPid(projectArea);
+        exitCode: code,
+        ...(errorMessage ? { error: errorMessage } : {})
+      }, targetProjectArea).catch(() => {});
+      await unregisterBuildPid(targetProjectArea);
       if (options.activePort) portSemaphoreManager.releasePort(options.activePort);
       try { fs.closeSync(outFd); } catch {}
       if (watcher) {
@@ -227,7 +255,7 @@ export async function executeWithSpooling(
             const fd = fs.openSync(logFile, "r");
             fs.readSync(fd, buffer, 0, buffer.length, fileOffset);
             fs.closeSync(fd);
-            portalEvents.emitBuildLog(projectArea, buffer.toString());
+            portalEvents.emitTaskLog(projectArea, taskId, buffer.toString());
             fileOffset = stat.size;
           }
         } catch {}
@@ -243,7 +271,7 @@ export async function executeWithSpooling(
       }
     });
 
-    return { status: "running", message: "Task dispatched to background.", pid: proc.pid };
+    return { status: "running", message: "Task dispatched to background.", pid: proc.pid, taskId: commandId, logPaths: [logFile] };
   }
   
   const exitCode = await new Promise<number>((resolve, reject) => {
@@ -275,9 +303,19 @@ export async function executeWithSpooling(
     });
   });
 
-  await updateCommandStatus(commandId, { 
+  let errorMessage = undefined;
+  if (exitCode !== 0) {
+    try {
+      const lines = await tailFileBounded(logFile, 512 * 1024);
+      const errors = parseStderrErrors(lines.join("\n"));
+      if (errors && errors.length > 0) errorMessage = errors[0];
+    } catch {}
+  }
+
+  await updateTaskStatus(commandId, taskId, { 
     status: exitCode === 0 ? "success" : "error",
-    exitCode 
+    exitCode,
+    ...(errorMessage ? { error: errorMessage } : {})
   }, projectArea).catch(() => {});
 
   // Cleanup
@@ -299,7 +337,7 @@ export async function executeWithSpooling(
         const fd = fs.openSync(logFile, "r");
         fs.readSync(fd, buffer, 0, buffer.length, fileOffset);
         fs.closeSync(fd);
-        portalEvents.emitBuildLog(projectArea, buffer.toString());
+        portalEvents.emitTaskLog(projectArea, taskId, buffer.toString());
         fileOffset = stat.size;
       }
     } catch {}
@@ -324,4 +362,50 @@ export async function executeWithSpooling(
   }
 
   return { exitCode, finalOutput, fullLogPath: logFile };
+}
+
+/**
+ * Spools a large JSON dataset to disk if it exceeds a specified string length.
+ * Prevents MCP context window blowouts.
+ * 
+ * @param toolName - The name of the tool generating the data (used for the cache file name).
+ * @param data - The raw JSON object/array payload.
+ * @param targetDir - The target workspace directory to save the cache file.
+ * @param threshold - The character count threshold above which the data should be spooled (default: 2000).
+ * @returns Either the original data or a string message pointing to the file path.
+ */
+export function spoolLargeDataset(toolName: string, data: any, targetDir?: string, threshold = 2000): string | any {
+  const stringified = JSON.stringify(data, null, 2);
+  
+  if (stringified.length > threshold) {
+    // Determine the cache directory using standard getLogDir with toolName as verb
+    const cacheDir = getLogDir(toolName, targetDir);
+    
+    // Ensure the directory exists
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+    }
+    
+    // Rotate logs to prevent infinite spools accumulating
+    rotateLogs(cacheDir, `${toolName}-`, 30);
+    
+    // Define the cache file path
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const shortHash = crypto.randomBytes(4).toString("hex");
+    const cacheFile = path.join(cacheDir, `${toolName}-${timestamp}-${shortHash}.json`);
+    const latestFile = path.join(cacheDir, `latest-${toolName}.json`);
+    
+    // Write the raw JSON data to disk
+    fs.writeFileSync(cacheFile, stringified, "utf-8");
+    
+    // Update the latest symlink
+    try {
+      if (fs.existsSync(latestFile)) fs.unlinkSync(latestFile);
+      fs.symlinkSync(cacheFile, latestFile);
+    } catch {}
+    
+    return `Payload too large for context window. Full dataset successfully spooled to disk at ${cacheFile}. Please use your grep_search or view_file tools to query this file.`;
+  }
+  
+  return data;
 }

@@ -20,9 +20,10 @@ import { BuildError, PlatformIOError } from "../utils/errors.js";
 import { parseStderrErrors } from "../utils/errors.js";
 import { isBuildActive } from "../utils/process-manager.js";
 import fs from "node:fs";
-import os from "node:os";
+
 import path from "node:path";
 import { tailFileBounded } from "../utils/tail.js";
+import { SERVER_DATA_DIR, ensureGlobalDirs } from "../utils/paths.js";
 
 
 /**
@@ -55,6 +56,10 @@ export async function buildProject(
       args.push("--environment", environment);
     }
 
+    // Add verbose flag if requested
+    if (verbose) {
+      args.push("--verbose");
+    }
 
     // Build can take a while, especially first time
     const result = await executeWithSpooling("run", args, {
@@ -105,7 +110,116 @@ export async function buildProject(
 }
 
 /**
+ * Runs static analysis on a PlatformIO project.
+ *
+ * @param projectDir - The target location of the PIO project.
+ * @param environment - Optional specific platformio.ini environment target.
+ * @param background - If true, dispatches the execution to the background.
+ * @returns Resulting status payload.
+ */
+export async function checkProject(
+  projectDir: string,
+  environment?: string,
+  background?: boolean,
+): Promise<BuildResult> {
+  const validatedPath = validateProjectPath(projectDir);
+
+  if (environment && !validateEnvironmentName(environment)) {
+    throw new BuildError(`Invalid environment name: ${environment}`, { environment });
+  }
+
+  try {
+    const args: string[] = [];
+    if (environment) {
+      args.push("--environment", environment);
+    }
+
+    const result = await executeWithSpooling("check", args, {
+      cwd: validatedPath,
+      projectDir: validatedPath,
+      timeout: 600000,
+      background,
+      artifactType: "check" as any, // "check" is handled cleanly by spooler
+    });
+
+    if ('status' in result) {
+      return result as unknown as BuildResult;
+    }
+
+    const success = result.exitCode === 0;
+    const errors = success ? undefined : parseStderrErrors(result.finalOutput);
+
+    return {
+      success,
+      environment: environment || "default",
+      output: result.finalOutput,
+      errors,
+    };
+  } catch (error) {
+    if (error instanceof PlatformIOError) {
+      throw new BuildError(`Check failed: ${error.message}`, { projectDir, environment });
+    }
+    throw new BuildError(`Failed to check project: ${error}`, { projectDir, environment });
+  }
+}
+
+/**
+ * Runs unit tests on a PlatformIO project.
+ *
+ * @param projectDir - The target location of the PIO project.
+ * @param environment - Optional specific platformio.ini environment target.
+ * @param background - If true, dispatches the execution to the background.
+ * @returns Resulting status payload.
+ */
+export async function runTests(
+  projectDir: string,
+  environment?: string,
+  background?: boolean,
+): Promise<BuildResult> {
+  const validatedPath = validateProjectPath(projectDir);
+
+  if (environment && !validateEnvironmentName(environment)) {
+    throw new BuildError(`Invalid environment name: ${environment}`, { environment });
+  }
+
+  try {
+    const args: string[] = [];
+    if (environment) {
+      args.push("--environment", environment);
+    }
+
+    const result = await executeWithSpooling("test", args, {
+      cwd: validatedPath,
+      projectDir: validatedPath,
+      timeout: 600000,
+      background,
+      artifactType: "test",
+    });
+
+    if ('status' in result) {
+      return result as unknown as BuildResult;
+    }
+
+    const success = result.exitCode === 0;
+    const errors = success ? undefined : parseStderrErrors(result.finalOutput);
+
+    return {
+      success,
+      environment: environment || "default",
+      output: result.finalOutput,
+      errors,
+    };
+  } catch (error) {
+    if (error instanceof PlatformIOError) {
+      throw new BuildError(`Tests failed: ${error.message}`, { projectDir, environment });
+    }
+    throw new BuildError(`Failed to run tests: ${error}`, { projectDir, environment });
+  }
+}
+
+/**
  * Cleans build artifacts from a project.
+
  *
  * @param projectDir - Discard compilation output for this project workspace.
  * @returns Indicates successful cleanup execution metadata.
@@ -180,6 +294,9 @@ export async function buildTarget(
       args.push("--environment", environment);
     }
 
+    if (verbose) {
+      args.push("--verbose");
+    }
 
     const result = await executeWithSpooling("run", args, {
       cwd: validatedPath,
@@ -287,43 +404,93 @@ export async function listTargets(
   }
 }
 
+import { getCommandHistory } from "../utils/command-registry.js";
+
 /**
  * Polling tool to check background task status and return recent logs.
  */
-export async function checkTaskStatus(projectDir?: string) {
-  const baseDir = projectDir || os.tmpdir();
-  const WORKSPACE_DIR = ".pio-mcp-workspace";
-  const LOGS_DIR = "build_logs";
-  const logFile = path.join(baseDir, WORKSPACE_DIR, LOGS_DIR, "latest-build.log");
+export async function checkTaskStatus(taskId?: string, logPath?: string, projectDir?: string) {
+  const baseDir = projectDir || SERVER_DATA_DIR;
+  if (!projectDir) ensureGlobalDirs();
   
-  const active = isBuildActive(projectDir);
+  const history = getCommandHistory(baseDir);
+  let resolvedTaskId = taskId;
 
-  let finalOutput = "";
-  if (fs.existsSync(logFile)) {
-    try {
-      const lines = await tailFileBounded(logFile, 512 * 1024);
-      if (active) {
-        finalOutput = lines.slice(-30).join("\n");
-      } else {
-        finalOutput = lines.slice(-150).join("\n");
+  // 1. Reverse Lookup by logPath
+  if (!resolvedTaskId && logPath) {
+    for (const cmd of history) {
+      const match = cmd.tasks?.find(t => t.logPaths?.includes(logPath));
+      if (match) {
+        resolvedTaskId = cmd.id; // Command ID acts as the primary task reference
+        break;
       }
-    } catch (e: any) {
-      finalOutput = `[Status Polling Error] Could not read log: ${e.message}`;
     }
-  } else {
-    finalOutput = "No active build log found.";
   }
 
-  let taskStatus = active ? "running" : "completed";
-  
-  if (!active && finalOutput.includes("FAILED")) {
-     taskStatus = "failed";
-  } else if (!active && finalOutput.includes("Error:")) {
-     taskStatus = "failed";
+  // 2. Smart Fallback if still no taskId
+  if (!resolvedTaskId) {
+    for (let i = history.length - 1; i >= 0; i--) {
+      const cmd = history[i];
+      if (cmd.tasks && cmd.tasks.length > 0) {
+        resolvedTaskId = cmd.id;
+        break;
+      }
+    }
+  }
+
+  let status = "completed";
+  let output = "No output available.";
+  let logPaths: string[] = [];
+
+  // 3. Unified Execution
+  if (resolvedTaskId) {
+    const cmd = history.find(c => c.id === resolvedTaskId);
+    if (cmd) {
+      status = cmd.status;
+      logPaths = cmd.tasks
+        .flatMap(a => a.logPaths || [])
+        .filter((f): f is string => Boolean(f));
+      
+      const latestLog = logPath || logPaths[logPaths.length - 1];
+      if (latestLog && fs.existsSync(latestLog)) {
+         try {
+           const lines = await tailFileBounded(latestLog, 512 * 1024);
+           output = lines.slice(status === "running" ? -30 : -150).join("\n");
+         } catch(e: any) {
+           output = `[Status Polling Error] Could not read log: ${e.message}`;
+         }
+      } else if (latestLog) {
+         output = `Log file not found: ${latestLog}`;
+      }
+    } else {
+       status = "failed";
+       output = `Task ID not found: ${resolvedTaskId}`;
+    }
+  } else {
+    // Absolute legacy fallback
+    const logFile = path.join(baseDir, ".pio-mcp-workspace", "logs", "build", "latest-build.log");
+    const active = isBuildActive(projectDir);
+    status = active ? "running" : "completed";
+    if (fs.existsSync(logFile)) {
+      logPaths = [logFile];
+      try {
+        const lines = await tailFileBounded(logFile, 512 * 1024);
+        output = lines.slice(active ? -30 : -150).join("\n");
+      } catch (e: any) {
+        output = `[Status Polling Error] Could not read log: ${e.message}`;
+      }
+    } else {
+      output = "No active task or build log found.";
+    }
+
+    if (!active && output.includes("FAILED")) status = "failed";
+    else if (!active && output.includes("Error:")) status = "failed";
   }
 
   return {
-    status: taskStatus,
-    logTail: finalOutput
+    status,
+    taskId: resolvedTaskId,
+    logPaths,
+    output
   };
 }

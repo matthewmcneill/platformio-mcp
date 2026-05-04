@@ -36,20 +36,31 @@ import {
   QueryLogsParamsSchema,
   CheckTaskStatusParamsSchema,
   GetDashboardUrlParamsSchema,
+  GetProjectConfigParamsSchema,
+  CheckProjectParamsSchema,
+  RunTestsParamsSchema,
+  UninstallLibraryParamsSchema,
+  UpdateLibraryParamsSchema,
 } from "./types.js";
+import { registerCommand, updateCommandStatus } from "./utils/command-registry.js";
+import { mcpContext } from "./utils/mcp-context.js";
+import { addWorkspace } from "./utils/workspace-registry.js";
 
 // Import tool functions from feature modules
 import { listBoards, getBoardInfo } from "./tools/boards.js";
 import { listDevices } from "./tools/devices.js";
-import { initProject } from "./tools/projects.js";
-import { buildProject, cleanProject, checkTaskStatus } from "./tools/build.js";
+import { initProject, getProjectConfig, getSystemInfo } from "./tools/projects.js";
+import { buildProject, cleanProject, checkTaskStatus, checkProject, runTests } from "./tools/build.js";
 import { uploadFirmware, uploadFilesystem } from "./tools/upload.js";
 import { startMonitor, stopMonitor, queryLogs } from "./tools/monitor.js";
+import { spoolLargeDataset } from "./utils/spooler.js";
 
 import {
   searchLibraries,
   installLibrary,
   listInstalledLibraries,
+  uninstallLibrary,
+  updateLibrary,
 } from "./tools/libraries.js";
 import { checkPlatformIOInstalled } from "./platformio.js";
 import { formatPlatformIOError } from "./utils/errors.js";
@@ -143,10 +154,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 'Optional framework (e.g., "arduino", "espidf", "mbed")',
             },
-            projectDir: {
-              type: "string",
-              description: "Directory path where the project should be created",
-            },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             platformOptions: {
               type: "object",
               description: "Optional platform-specific configuration options",
@@ -162,10 +170,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            projectDir: {
-              type: "string",
-              description: "Path to the PlatformIO project directory",
-            },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             environment: {
               type: "string",
               description:
@@ -196,10 +201,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            projectDir: {
-              type: "string",
-              description: "Path to the PlatformIO project directory",
-            },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             sessionId: {
               type: "string",
               description: "Agent session ID for pipeline lock validation",
@@ -220,10 +222,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            projectDir: {
-              type: "string",
-              description: "Path to the PlatformIO project directory",
-            },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             port: {
               type: "string",
               description:
@@ -262,10 +261,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            projectDir: {
-              type: "string",
-              description: "Path to the PlatformIO project directory",
-            },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             port: {
               type: "string",
               description:
@@ -364,16 +360,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Library name or ID to install",
             },
-            projectDir: {
-              type: "string",
-              description:
-                "Optional project directory (installs globally if not specified)",
-            },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             version: {
               type: "string",
               description:
                 'Optional specific version (e.g., "1.0.0", "^2.1.0")',
             },
+            global: { type: "boolean", description: "If true, performs the operation globally. Defaults to false." },
           },
           required: ["library"],
         },
@@ -385,11 +378,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            projectDir: {
-              type: "string",
-              description:
-                "Optional project directory (lists global libraries if not specified)",
-            },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
+            global: { type: "boolean", description: "If true, performs the operation globally. Defaults to false." },
           },
         },
       },
@@ -401,7 +391,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             port: { type: "string", description: "Optional COM path. Falls back to default." },
             baudRate: { type: "number", description: "Optional baud rate. Defaults to 115200." },
-            projectDir: { type: "string", description: "Target project boundary to deposit raw hardware logs into instead of the global server cache." },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             environment: { type: "string", description: "Optional PlatformIO environment context." },
           },
         },
@@ -413,7 +403,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           type: "object",
           properties: {
             port: { type: "string", description: "COM port to stop listening on." },
-            projectDir: { type: "string", description: "Target project containing the workspace." },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
           },
           required: ["port"],
         },
@@ -426,7 +416,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             lines: { type: "number", description: "Fetch this many tail lines from the end of the log (default: 100)" },
             searchPattern: { type: "string", description: "Optional Regex pattern to filter the spool for specific keywords." },
-            projectDir: { type: "string", description: "Target project checkout to query local .log cache instead of global cache." },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             port: { type: "string", description: "Specific COM port to query logs for." },
           },
         },
@@ -437,17 +427,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {
-            projectDir: { type: "string", description: "Optional target directory for scoped cleanup." },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
           },
         },
       },
       {
         name: "check_task_status",
-        description: "Polls the status of an ongoing background build or upload task.",
+        description: "Polls the status of an ongoing background task.",
         inputSchema: {
           type: "object",
           properties: {
-            projectDir: { type: "string", description: "Optional project directory to scope the check." },
+            taskId: { type: "string", description: "Optional task ID to check status." },
+            logPath: { type: "string", description: "Optional relative log path to check." },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
           },
         },
       },
@@ -459,6 +451,77 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {
             open: { type: "boolean", description: "If true, automatically opens the authenticated GUI link natively in the system's browser." },
           },
+        },
+      },
+      {
+        name: "get_project_config",
+        description: "Dumps platformio.ini JSON.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
+          },
+          required: ["projectDir"],
+        },
+      },
+      {
+        name: "system_info",
+        description: "Gets sys diagnostic path output.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "check_project",
+        description: "Static analysis validation.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
+            environment: { type: "string", description: "Specific environment to check" },
+            background: { type: "boolean", description: "Run slow analysis in background" },
+          },
+          required: ["projectDir"],
+        },
+      },
+      {
+        name: "run_tests",
+        description: "Validates unit tests locally/remote.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
+            environment: { type: "string", description: "Specific environment to test" },
+            background: { type: "boolean", description: "Run testing in background" },
+          },
+          required: ["projectDir"],
+        },
+      },
+      {
+        name: "uninstall_library",
+        description: "Removes target library.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            library: { type: "string", description: "Library name or ID to uninstall" },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
+            global: { type: "boolean", description: "If true, performs the operation globally. Defaults to false." },
+          },
+          required: ["library"],
+        },
+      },
+      {
+        name: "update_library",
+        description: "Upgrades library versions.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            library: { type: "string", description: "Library name or ID to update" },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
+            global: { type: "boolean", description: "If true, performs the operation globally. Defaults to false." },
+          },
+          required: ["library"],
         },
       },
     ],
@@ -480,19 +543,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const activityId = crypto.randomUUID();
   portalEvents.emitActivity(name, args, 'running', activityId);
 
-  logDiag(`[Command Execution] Tool invoked: '${name}' with arguments: ${JSON.stringify(args)}`, args.projectDir);
+  // Group global commands into the currently active workspace UI if missing
+  const targetProjectDir = args.projectDir || portalEvents.getLastKnownWorkspace();
+
+  // Expose the MCP tool initiation to the Web UI ledger
+  await registerCommand({
+    id: activityId,
+    commandDesc: `MCP Tool: ${name}`,
+    timestamp: Date.now(),
+    status: "running",
+    tasks: [],
+    mcpRequest: args,
+    mcpToolName: name
+  }, targetProjectDir);
+
+  logDiag(`[Command Execution] Tool invoked: '${name}' with arguments: ${JSON.stringify(args)}`, targetProjectDir);
 
   try {
-    const response = await (async () => {
+    const response = await mcpContext.run({ activityId, targetProjectDir }, async () => {
       switch (name) {
       case "list_boards": {
         const params = ListBoardsParamsSchema.parse(args);
         const boards = await listBoards(params.filter);
+        const spooled = spoolLargeDataset("list_boards", boards, targetProjectDir || process.cwd());
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(boards, null, 2),
+              text: typeof spooled === "string" ? spooled : JSON.stringify(spooled, null, 2),
             },
           ],
         };
@@ -687,11 +765,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "search_libraries": {
         const params = SearchLibrariesParamsSchema.parse(args);
         const libraries = await searchLibraries(params.query, params.limit);
+        const spooled = spoolLargeDataset("search_libraries", libraries, targetProjectDir || process.cwd());
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(libraries, null, 2),
+              text: typeof spooled === "string" ? spooled : JSON.stringify(spooled, null, 2),
             },
           ],
         };
@@ -700,7 +779,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "install_library": {
         const params = InstallLibraryParamsSchema.parse(args);
         const result = await installLibrary(params.library, {
-          projectDir: params.projectDir,
+          projectDir: params.global ? undefined : targetProjectDir,
           version: params.version,
         });
         return {
@@ -715,12 +794,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "list_installed_libraries": {
         const params = ListInstalledLibrariesParamsSchema.parse(args);
-        const libraries = await listInstalledLibraries(params.projectDir);
+        const libraries = await listInstalledLibraries(params.global ? undefined : targetProjectDir);
+        const spooled = spoolLargeDataset("list_installed_libraries", libraries, targetProjectDir || process.cwd());
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(libraries, null, 2),
+              text: typeof spooled === "string" ? spooled : JSON.stringify(spooled, null, 2),
             },
           ],
         };
@@ -745,7 +825,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "query_logs": {
         const params = QueryLogsParamsSchema.parse(args);
-        const result = await queryLogs(params.lines, params.searchPattern, params.projectDir, params.port);
+        const result = await queryLogs(params.lines, params.searchPattern, params.taskId, params.logPath, params.projectDir, params.port);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -781,7 +861,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "check_task_status": {
         const params = CheckTaskStatusParamsSchema.parse(args);
-        const result = await checkTaskStatus(params.projectDir);
+        const result = await checkTaskStatus(params.taskId, params.logPath, params.projectDir);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -789,7 +869,58 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "get_dashboard_url": {
         const params = GetDashboardUrlParamsSchema.parse(args);
-        const result = await getDashboardStatus(params.open);
+        const result = await getDashboardStatus(params.open, params.projectDir);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "get_project_config": {
+        const params = GetProjectConfigParamsSchema.parse(args);
+        const result = await getProjectConfig(params.projectDir);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "system_info": {
+        const result = await getSystemInfo();
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "check_project": {
+        const params = CheckProjectParamsSchema.parse(args);
+        const result = await checkProject(params.projectDir, params.environment, params.background);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "run_tests": {
+        const params = RunTestsParamsSchema.parse(args);
+        const executeTask = () => runTests(params.projectDir, params.environment, params.background);
+        const result = params.sessionId
+          ? (hardwareLockManager.requireLock(params.sessionId),
+            await executeTask())
+          : await hardwareLockManager.withImplicitLock(executeTask);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "uninstall_library": {
+        const params = UninstallLibraryParamsSchema.parse(args);
+        const result = await uninstallLibrary(params.library, params.global ? undefined : targetProjectDir);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "update_library": {
+        const params = UpdateLibraryParamsSchema.parse(args);
+        const result = await updateLibrary(params.library, params.global ? undefined : targetProjectDir);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -798,12 +929,40 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       default:
         throw new Error(`Unknown tool: ${name}`);
       }
-    })();
-    
+    });
+
+    let storedResponse = response;
+    try {
+      const responseString = JSON.stringify(response);
+      if (responseString.length > 1000) {
+        storedResponse = { 
+          truncated: true, 
+          message: "Response truncated to save ledger space",
+          preview: responseString.substring(0, 1000) + "... [TRUNCATED]"
+        } as any;
+      }
+    } catch {}
+
+    await updateCommandStatus(activityId, {
+      status: "success",
+      mcpResponse: storedResponse
+    }, targetProjectDir);
+
     portalEvents.emitActivity(name, args, 'success', activityId);
+    
+    if (args.projectDir) {
+      await addWorkspace(args.projectDir).catch(() => {});
+    }
+
     return response;
-  } catch (error) {
+  } catch (error: any) {
+    await updateCommandStatus(activityId, {
+      status: "error",
+      mcpResponse: { error: error.message }
+    }, targetProjectDir);
+
     portalEvents.emitActivity(name, args, 'error', activityId);
+    
     const errorMessage = formatPlatformIOError(error);
     return {
       content: [

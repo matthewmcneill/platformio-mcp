@@ -22,6 +22,7 @@ import { UploadError, PlatformIOError } from "../utils/errors.js";
 import { parseStderrErrors } from "../utils/errors.js";
 import { stopMonitor } from "./monitor.js";
 import { portSemaphoreManager } from "../utils/semaphore.js";
+import { mcpContext } from "../utils/mcp-context.js";
 
 /**
  * Uploads a SPIFFS/LittleFS filesystem image to a target device.
@@ -74,9 +75,13 @@ export async function uploadFilesystem(
 
     const uploadArgs: string[] = ["run", "--target", "uploadfs"];
     if (environment) uploadArgs.push("--environment", environment);
+    if (verbose) uploadArgs.push("--verbose");
 
     await stopMonitor(activePort, projectDir);
     portSemaphoreManager.claimPort(activePort, "Filesystem Upload");
+
+    const ctx = mcpContext.getStore();
+    const rootCommandId = ctx?.activityId || crypto.randomUUID();
 
     const uploadResult = await executeWithSpooling(
       "run",
@@ -87,11 +92,13 @@ export async function uploadFilesystem(
         timeout: 600000,
         background,
         activePort,
+        rootCommandId,
+        artifactType: "upload",
         onSuccess: startMonitorAfter ? async () => {
           if (hwid) {
             const newPort = await waitForDeviceByHwid(hwid, 10000, (msg) => console.error(msg.trim()));
             if (newPort) {
-              await startMonitor(newPort, undefined, validatedPath, environment);
+              await startMonitor(newPort, undefined, validatedPath, environment, rootCommandId);
               return;
             }
           }
@@ -103,7 +110,7 @@ export async function uploadFilesystem(
             if (device) break;
           }
           if (device) {
-            await startMonitor(device.port, undefined, validatedPath, environment);
+            await startMonitor(device.port, undefined, validatedPath, environment, rootCommandId);
           } else {
             console.error(`[Spooler Diagnostic] Auto-monitor failed: Device did not re-enumerate within 10 seconds.`);
           }
@@ -192,9 +199,13 @@ export async function uploadFirmware(
 
     const uploadArgs: string[] = ["run", "--target", "upload"];
     if (environment) uploadArgs.push("--environment", environment);
+    if (verbose) uploadArgs.push("--verbose");
 
     await stopMonitor(activePort, projectDir);
     portSemaphoreManager.claimPort(activePort, "Firmware Upload");
+
+    const ctx = mcpContext.getStore();
+    const rootCommandId = ctx?.activityId || crypto.randomUUID();
 
     const uploadResult = await executeWithSpooling(
       "run",
@@ -205,11 +216,13 @@ export async function uploadFirmware(
         timeout: 600000,
         background,
         activePort,
+        rootCommandId,
+        artifactType: "upload",
         onSuccess: startMonitorAfter ? async () => {
           if (hwid) {
             const newPort = await waitForDeviceByHwid(hwid, 10000, (msg) => console.error(msg.trim()));
             if (newPort) {
-              await startMonitor(newPort, undefined, validatedPath, environment);
+              await startMonitor(newPort, undefined, validatedPath, environment, rootCommandId);
               return;
             }
           }
@@ -221,7 +234,7 @@ export async function uploadFirmware(
             if (device) break;
           }
           if (device) {
-            await startMonitor(device.port, undefined, validatedPath, environment);
+            await startMonitor(device.port, undefined, validatedPath, environment, rootCommandId);
           } else {
             console.error(`[Spooler Diagnostic] Auto-monitor failed: Device did not re-enumerate within 10 seconds.`);
           }

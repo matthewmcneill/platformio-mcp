@@ -15,8 +15,9 @@ import { execSync } from "node:child_process";
 import treeKill from "tree-kill";
 import lockfile from "proper-lockfile";
 import { logDiagnostic as logDiag } from "./logger.js";
-import { registerCommand, updateCommandStatus, getCommandHistory } from "./command-registry.js";
+import { registerCommand, updateCommandStatus, updateTaskStatus, getCommandHistory } from "./command-registry.js";
 import crypto from "node:crypto";
+import { SERVER_DATA_DIR, ensureGlobalDirs } from "./paths.js";
 
 const WORKSPACE_DIR = ".pio-mcp-workspace";
 const LOCKS_DIR = "locks";
@@ -28,24 +29,37 @@ const BUILD_PIDS_FILE = "active_tasks.json";
  */
 function getPidsFilePath(projectDir?: string, file: string = SERIAL_PIDS_FILE): string {
   if (file === SERIAL_PIDS_FILE) {
-    const baseDir = projectDir || os.tmpdir();
-    const dir = path.join(baseDir, WORKSPACE_DIR, "serial_monitors");
+    // Serial ports are global OS-level hardware resources.
+    // Tracking them globally prevents Project B from attempting to open a port held by Project A.
+    ensureGlobalDirs();
+    const dir = path.join(SERVER_DATA_DIR, "serial_monitors");
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     return path.join(dir, file);
   } else if (file === BUILD_PIDS_FILE) {
-    const baseDir = projectDir || os.tmpdir();
+    // Build tasks are strictly scoped to the project environment
+    const baseDir = projectDir || SERVER_DATA_DIR;
+    if (!projectDir) ensureGlobalDirs();
     const dir = path.join(baseDir, WORKSPACE_DIR, "tasks");
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     return path.join(dir, file);
   }
-  const baseDir = projectDir || os.tmpdir();
+  const baseDir = projectDir || SERVER_DATA_DIR;
+  if (!projectDir) ensureGlobalDirs();
   return path.join(baseDir, WORKSPACE_DIR, LOCKS_DIR, file);
 }
 
 /**
  * Records a given process ID belonging to a started serial monitor.
  */
-export async function registerPioMonitorPid(port: string, pid: number, projectDir?: string): Promise<void> {
+export async function registerPioMonitorPid(
+  port: string, 
+  pid: number, 
+  projectDir?: string, 
+  rootCommandId?: string, 
+  logFile?: string,
+  taskId?: string,
+  commandDesc?: string
+): Promise<void> {
   const pidsFile = getPidsFilePath(projectDir);
   const dir = path.dirname(pidsFile);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -68,14 +82,23 @@ export async function registerPioMonitorPid(port: string, pid: number, projectDi
   }
 
   try {
-    const commandId = crypto.randomUUID();
+    const commandId = rootCommandId || crypto.randomUUID();
+    const effectiveTaskId = taskId || crypto.randomUUID();
+    
     await registerCommand({
       id: commandId,
+      commandDesc: `PIO Serial Monitor: ${port}`,
       timestamp: Date.now(),
-      type: "monitor",
       status: "running",
-      port: port,
-      pid: pid
+      tasks: [{
+        taskId: effectiveTaskId,
+        type: "monitor",
+        status: "running",
+        port: port,
+        pid: pid,
+        commandDesc: commandDesc,
+        logPaths: logFile ? [logFile] : []
+      }]
     }, projectDir);
   } catch (e: any) {
     logDiag(`[ProcessManager] Failed to register monitor command: ${e.message}`, projectDir);
@@ -86,29 +109,36 @@ export async function registerPioMonitorPid(port: string, pid: number, projectDi
  * Removes the recorded PID tracking for a specific port.
  */
 export async function unregisterPioMonitorPid(port: string, projectDir?: string): Promise<void> {
-  const pidsFile = getPidsFilePath(projectDir);
-  if (!fs.existsSync(pidsFile)) return;
-
-  try {
-    const release = await lockfile.lock(pidsFile, { retries: { retries: 5, minTimeout: 50, maxTimeout: 200 } });
+  const pidsFile = getPidsFilePath(projectDir, SERIAL_PIDS_FILE);
+  
+  if (fs.existsSync(pidsFile)) {
     try {
-      const pids: Record<string, number> = JSON.parse(fs.readFileSync(pidsFile, "utf8"));
-      if (pids[port]) {
-        delete pids[port];
-        fs.writeFileSync(pidsFile, JSON.stringify(pids, null, 2));
+      const release = await lockfile.lock(pidsFile, { retries: { retries: 5, minTimeout: 50, maxTimeout: 200 } });
+      try {
+        const pids: Record<string, number> = JSON.parse(fs.readFileSync(pidsFile, "utf8"));
+        if (pids[port]) {
+          delete pids[port];
+          fs.writeFileSync(pidsFile, JSON.stringify(pids, null, 2));
+        }
+      } finally {
+        await release();
       }
-    } finally {
-      await release();
+    } catch (e: any) {
+      throw new Error(`Registry contention timeout: ${e.message}`);
     }
-  } catch (e: any) {
-    throw new Error(`Registry contention timeout: ${e.message}`);
   }
 
   try {
     const history = getCommandHistory(projectDir);
-    const activeMonitor = [...history].reverse().find((c: any) => c.type === "monitor" && c.status === "running" && c.port === port);
-    if (activeMonitor) {
-      await updateCommandStatus(activeMonitor.id, { status: "terminated" }, projectDir);
+    // Find the command that contains an actively running monitor task for this port
+    const activeCommand = [...history].reverse().find(cmd => 
+      cmd.tasks?.some(a => a.type === "monitor" && a.status === "running" && a.port === port)
+    );
+    if (activeCommand) {
+      const activeTask = activeCommand.tasks.find(a => a.type === "monitor" && a.status === "running" && a.port === port);
+      if (activeTask) {
+        await updateTaskStatus(activeCommand.id, activeTask.taskId, { status: "terminated" }, projectDir);
+      }
     }
   } catch (e: any) {
     logDiag(`[ProcessManager] Failed to update monitor command status: ${e.message}`, projectDir);
@@ -120,31 +150,47 @@ export async function unregisterPioMonitorPid(port: string, projectDir?: string)
  */
 export function killPioMonitorByPort(port: string, projectDir?: string): Promise<void> {
   return new Promise((resolve) => {
+    let targetPid: number | undefined;
+    
     const pidsFile = getPidsFilePath(projectDir, SERIAL_PIDS_FILE);
-    if (!fs.existsSync(pidsFile)) {
-      resolve();
-      return;
+    if (fs.existsSync(pidsFile)) {
+      try {
+        const pids: Record<string, number> = JSON.parse(fs.readFileSync(pidsFile, "utf8"));
+        targetPid = pids[port];
+      } catch {}
     }
 
-    try {
-      const pids: Record<string, number> = JSON.parse(fs.readFileSync(pidsFile, "utf8"));
-      const targetPid = pids[port];
-      if (targetPid) {
-        logDiag(`[ProcessManager Diagnostic] Found tracked PID ${targetPid} for port ${port}. Yielding to tree-kill...`, projectDir);
-        treeKill(targetPid, "SIGKILL", async (err) => {
-          if (err) {
-            logDiag(`[ProcessManager Diagnostic] Failed to tree-kill PID ${targetPid}: ${err.message}`, projectDir);
-          } else {
-            logDiag(`[ProcessManager Diagnostic] Successfully tree-killed PID ${targetPid}.`, projectDir);
+    if (!targetPid) {
+      try {
+        const history = getCommandHistory(projectDir);
+        for (const cmd of history) {
+          if (cmd.status === "running" && cmd.tasks) {
+            for (const task of cmd.tasks) {
+              if (task.type === "monitor" && task.status === "running" && task.port === port && task.pid) {
+                targetPid = task.pid;
+                break;
+              }
+            }
           }
-          await unregisterPioMonitorPid(port, projectDir);
-          resolve();
-        });
-      } else {
+          if (targetPid) break;
+        }
+      } catch {}
+    }
+
+    if (targetPid) {
+      logDiag(`[ProcessManager Diagnostic] Found tracked PID ${targetPid} for port ${port}. Yielding to tree-kill...`, projectDir);
+      treeKill(targetPid, "SIGKILL", async (err) => {
+        if (err) {
+          logDiag(`[ProcessManager Diagnostic] Failed to tree-kill PID ${targetPid}: ${err.message}`, projectDir);
+        } else {
+          logDiag(`[ProcessManager Diagnostic] Successfully tree-killed PID ${targetPid}.`, projectDir);
+        }
+        await unregisterPioMonitorPid(port, projectDir);
         resolve();
-      }
-    } catch {
-      resolve();
+      });
+    } else {
+      // Always ensure we unregister and update command status even if the PID was missing or already died
+      unregisterPioMonitorPid(port, projectDir).finally(resolve);
     }
   });
 }
@@ -159,6 +205,9 @@ export function isPidAlive(pid: number): boolean {
       try {
         const stdout = execSync(`ps -p ${pid} -o command=`, { encoding: "utf8" }).toLowerCase();
         if (!stdout.includes("platformio") && !stdout.includes("pio") && !stdout.includes("python")) {
+          return false;
+        }
+        if (stdout.includes("defunct") || stdout.includes("zombie")) {
           return false;
         }
       } catch {
@@ -287,6 +336,81 @@ export function killAllTrackedProcesses(projectDir?: string): Promise<void> {
       }
     }
     
+    // Fallback: also aggressively kill any orphaned PIDs still marked as "running" in the ledger
+    try {
+      const history = getCommandHistory(projectDir);
+      for (const cmd of history) {
+        if (cmd.status === "running" && cmd.tasks) {
+          for (const task of cmd.tasks) {
+            if (task.status === "running" && task.pid) {
+              logDiag(`[ProcessManager Diagnostic] Emergency killing orphaned history PID ${task.pid} for task ${task.taskId}.`, projectDir);
+              const p = new Promise<void>((res) => {
+                treeKill(task.pid!, "SIGKILL", () => res());
+              });
+              tasks.push(p);
+            }
+          }
+        }
+      }
+    } catch {}
+
     Promise.all(tasks).then(() => resolve());
   });
+}
+
+/**
+ * Scans the command history and forcefully terminates any task that is marked as 'running'
+ * but no longer has an active matching OS-level process.
+ */
+export async function sweepGhostTasks(projectDir?: string): Promise<void> {
+  try {
+    const history = getCommandHistory(projectDir);
+    let changed = false;
+
+    for (const cmd of history) {
+      if (cmd.status === "running") {
+        let anyTaskRunning = false;
+
+        if (cmd.tasks && cmd.tasks.length > 0) {
+          for (const task of cmd.tasks) {
+            if (task.status === "running") {
+              const pid = task.pid;
+              let isAlive = false;
+              if (pid && isPidAlive(pid)) {
+                isAlive = true;
+              }
+
+              if (!isAlive) {
+                // Task is dead! Force transition to terminated
+                await updateTaskStatus(cmd.id, task.taskId, { status: "terminated" }, projectDir);
+                logDiag(`[Ghost Sweeper] Cleaned up orphaned ghost task ${task.taskId} (PID: ${pid || 'Unknown'})`, projectDir);
+                changed = true;
+              } else {
+                anyTaskRunning = true;
+              }
+            }
+          }
+        }
+
+        if (!anyTaskRunning && !changed) {
+           const allSuccess = cmd.tasks?.every(a => a.status === 'success') ?? false;
+           const anyError = cmd.tasks?.some(a => a.status === 'error') ?? false;
+           
+           let finalStatus: "success" | "error" | "terminated" = "terminated";
+           if (anyError) finalStatus = "error";
+           else if (allSuccess && cmd.tasks && cmd.tasks.length > 0) finalStatus = "success";
+           
+           await updateCommandStatus(cmd.id, { status: finalStatus }, projectDir);
+           logDiag(`[Ghost Sweeper] Cleaned up stuck ghost command ${cmd.id}`, projectDir);
+           changed = true;
+        }
+      }
+    }
+    
+    if (changed) {
+      logDiag(`[Ghost Sweeper] Successfully scrubbed stale background tasks from registry.`, projectDir);
+    }
+  } catch (e: any) {
+    logDiag(`[Ghost Sweeper] Failed to sweep tasks: ${e.message}`, projectDir);
+  }
 }

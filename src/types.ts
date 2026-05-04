@@ -85,6 +85,7 @@ export interface SerialDevice {
   description: string; // Human-readable description of the device
   hwid: string; // Hardware ID string for port identification
   detectedBoard?: string; // Optional detected board identifier if PlatformIO recognized it
+  claim?: unknown; // Optional port claim state
 }
 
 /**
@@ -95,6 +96,7 @@ export const SerialDeviceSchema = z.object({
   description: z.string(),
   hwid: z.string(),
   detectedBoard: z.string().optional(),
+  claim: z.any().optional(),
 });
 
 /**
@@ -124,9 +126,9 @@ export const ProjectConfigSchema = z.object({
 });
 
 export interface ProjectInitResult {
-  success: boolean;
-  path: string;
-  message: string;
+  success: boolean; // Indicates if the initialization was successful
+  path: string; // Path to the initialized project
+  message: string; // Human-readable status message
 }
 
 // ============================================================================
@@ -144,18 +146,22 @@ export interface BuildResult {
   ramUsageBytes?: number; // Total RAM usage in bytes as reported by PIO
   flashUsageBytes?: number; // Total Flash usage in bytes as reported by PIO
   status?: string; // e.g. "running" if background=true
-  message?: string;
-  pid?: number;
+  message?: string; // Descriptive feedback message
+  pid?: number; // Process identifier for background streams
+  taskId?: string; // UUID mapping to the background invocation
+  logPaths?: string[]; // Array of associated trailing paths
 }
 
 /**
  * Outcome of a project clean execution.
  */
 export interface CleanResult {
-  success?: boolean;
-  message?: string;
-  status?: string;
-  pid?: number;
+  success?: boolean; // Indicates if clean was successful
+  message?: string; // Descriptive feedback message
+  status?: string; // Status token string
+  pid?: number; // System process ID
+  taskId?: string; // UUID mapping to the background invocation
+  logPaths?: string[]; // Array of associated trailing paths
 }
 
 // ============================================================================
@@ -185,9 +191,11 @@ export interface UploadResult {
   port?: string; // The serial port used for the upload
   output?: string; // Full stdout log from the upload process
   errors?: string[]; // List of extracted error messages from stderr if upload failed
-  status?: string;
-  message?: string;
-  pid?: number;
+  status?: string; // Overall state token like "running"
+  message?: string; // Descriptive feedback message
+  pid?: number; // System process ID
+  taskId?: string; // UUID mapping to the background invocation
+  logPaths?: string[]; // Array of associated trailing paths
 }
 
 
@@ -199,17 +207,17 @@ export interface UploadResult {
  * Author metadata for a library in the PlatformIO registry.
  */
 export interface LibraryAuthor {
-  name: string;
-  email?: string;
-  maintainer?: boolean;
+  name: string; // Name of the author or maintainer
+  email?: string; // Contact email optionally provided
+  maintainer?: boolean; // Defines if the author acts as active maintainer
 }
 
 /**
  * Repository location metadata for a library.
  */
 export interface LibraryRepository {
-  type: string;
-  url: string;
+  type: string; // Version control type (e.g. 'git')
+  url: string; // External repository web URL
 }
 
 /**
@@ -223,8 +231,8 @@ export interface LibraryInfo {
   authors?: LibraryAuthor[]; // List of authors and maintainers
   repository?: LibraryRepository; // Source code repository location
   version?: string; // Latest available version string
-  frameworks?: any[]; // List of compatible frameworks
-  platforms?: any[]; // List of compatible platforms
+  frameworks?: unknown[]; // List of compatible frameworks
+  platforms?: unknown[]; // List of compatible platforms
   homepage?: string; // Offical project URL
 }
 
@@ -249,8 +257,8 @@ export const LibraryInfoSchema = z.object({
     })
     .optional(),
   version: z.string().optional(),
-  frameworks: z.array(z.any()).optional(),
-  platforms: z.array(z.any()).optional(),
+  frameworks: z.array(z.unknown()).optional(),
+  platforms: z.array(z.unknown()).optional(),
   homepage: z.string().optional(),
 });
 
@@ -274,8 +282,8 @@ export const LibrarySearchResponseSchema = z.object({
  * Configuration parameters for searching libraries.
  */
 export interface LibrarySearchConfig {
-  query: string;
-  limit?: number;
+  query: string; // Keyword filter
+  limit?: number; // Max list length
 }
 
 export const LibrarySearchConfigSchema = z.object({
@@ -287,9 +295,9 @@ export const LibrarySearchConfigSchema = z.object({
  * Configuration parameters for installing a library.
  */
 export interface LibraryInstallConfig {
-  library: string;
-  projectDir?: string;
-  version?: string;
+  library: string; // Target registry ID
+  projectDir?: string; // Optional workspace bounded path
+  version?: string; // Strict library string target
 }
 
 export const LibraryInstallConfigSchema = z.object({
@@ -302,9 +310,9 @@ export const LibraryInstallConfigSchema = z.object({
  * Outcome of a library installation.
  */
 export interface LibraryInstallResult {
-  success: boolean;
-  library: string;
-  message: string;
+  success: boolean; // Indicates if installation succeeded
+  library: string; // The registered library targeted
+  message: string; // Operational feedback message
 }
 
 // ============================================================================
@@ -315,14 +323,14 @@ export interface LibraryInstallResult {
  * Information about a PlatformIO platform.
  */
 export interface PlatformInfo {
-  name: string;
-  title: string;
-  version?: string;
-  description?: string;
-  homepage?: string;
-  repository?: string;
-  frameworks?: string[];
-  packages?: string[];
+  name: string; // Internal registry identifier
+  title: string; // Capitalized descriptive title
+  version?: string; // Current loaded version
+  description?: string; // Platform outline
+  homepage?: string; // External web link
+  repository?: string; // Source control locator
+  frameworks?: string[]; // Valid framework identifiers
+  packages?: string[]; // Downloaded dependency bundles
 }
 
 // ============================================================================
@@ -383,6 +391,17 @@ export const InitProjectParamsSchema = z.object({
     .describe("Additional platform-specific options"),
 });
 
+// Get project config parameters
+export const GetProjectConfigParamsSchema = z.object({
+  projectDir: z
+    .string()
+    .min(1)
+    .describe("Path to the PlatformIO project directory"),
+});
+
+// System info parameters
+export const SystemInfoParamsSchema = z.object({});
+
 // Build project parameters
 export const BuildProjectParamsSchema = z.object({
   projectDir: z
@@ -423,6 +442,42 @@ export const CleanProjectParamsSchema = z.object({
     .boolean()
     .optional()
     .describe("If true, dispatches the long-running compilation to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently."),
+});
+
+// Check project parameters
+export const CheckProjectParamsSchema = z.object({
+  projectDir: z
+    .string()
+    .min(1)
+    .describe("Path to the PlatformIO project directory"),
+  environment: z
+    .string()
+    .optional()
+    .describe("Specific environment to check (from platformio.ini)"),
+  background: z
+    .boolean()
+    .optional()
+    .describe("If true, dispatches the static analysis to the background and returns immediately."),
+});
+
+// Run tests parameters
+export const RunTestsParamsSchema = z.object({
+  projectDir: z
+    .string()
+    .min(1)
+    .describe("Path to the PlatformIO project directory"),
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Agent session ID for pipeline lock validation"),
+  environment: z
+    .string()
+    .optional()
+    .describe("Specific environment to test (from platformio.ini)"),
+  background: z
+    .boolean()
+    .optional()
+    .describe("If true, dispatches the test execution to the background and returns immediately."),
 });
 
 // Upload firmware parameters
@@ -512,6 +567,27 @@ export const InstallLibraryParamsSchema = z.object({
     .optional()
     .describe("Project directory (installs globally if not specified)"),
   version: z.string().optional().describe("Specific version to install"),
+  global: z.boolean().optional().describe("If true, installs the library globally"),
+});
+
+// Uninstall library parameters
+export const UninstallLibraryParamsSchema = z.object({
+  library: z.string().min(1).describe("Library name or ID to uninstall"),
+  projectDir: z
+    .string()
+    .optional()
+    .describe("Project directory (uninstalls globally if not specified)"),
+  global: z.boolean().optional().describe("If true, uninstalls from global storage"),
+});
+
+// Update library parameters
+export const UpdateLibraryParamsSchema = z.object({
+  library: z.string().min(1).describe("Library name or ID to update"),
+  projectDir: z
+    .string()
+    .optional()
+    .describe("Project directory (updates globally if not specified)"),
+  global: z.boolean().optional().describe("If true, updates from global storage"),
 });
 
 // List installed libraries parameters
@@ -523,6 +599,7 @@ export const ListInstalledLibrariesParamsSchema = z.object({
     .string()
     .optional()
     .describe("Project directory (lists global libraries if not specified)"),
+  global: z.boolean().optional().describe("If true, lists global libraries"),
 });
 
 // Monitor parameters
@@ -539,14 +616,18 @@ export const StopMonitorParamsSchema = z.object({
 });
 
 export const QueryLogsParamsSchema = z.object({
-  lines: z.number().optional().describe("Number of tail lines to retrieve (default: 100)"),
-  searchPattern: z.string().optional().describe("Optional Regex pattern to filter logs"),
-  projectDir: z.string().optional().describe("Optional project directory containing the workspace logs"),
-  port: z.string().optional().describe("Specific port to query logs for"),
+  lines: z.number().optional().describe("Fetch this many tail lines from the end of the log (default: 100)"),
+  searchPattern: z.string().optional().describe("Optional Regex pattern to filter the spool for specific keywords."),
+  taskId: z.string().optional().describe("Target standard task ID to retrieve logs for."),
+  logPath: z.string().optional().describe("Optional relative path to a log to query directly."),
+  port: z.string().optional().describe("Specific COM port to query logs for."),
+  projectDir: z.string().optional().describe("Target project checkout to query local .log cache instead of global cache."),
 });
 
 export const CheckTaskStatusParamsSchema = z.object({
-  projectDir: z.string().optional().describe("Optional project directory containing the workspace logs"),
+  taskId: z.string().optional().describe("Optional task ID to check status."),
+  logPath: z.string().optional().describe("Optional relative log path to check."),
+  projectDir: z.string().optional().describe("Optional project directory to scope the check."),
 });
 
 /**
@@ -554,5 +635,6 @@ export const CheckTaskStatusParamsSchema = z.object({
  */
 export const GetDashboardUrlParamsSchema = z.object({
   open: z.boolean().optional().describe("If true, automatically opens the local dashboard UI in the system's default browser."),
+  projectDir: z.string().optional().describe("Optional project directory to initialize the dashboard with."),
 });
 

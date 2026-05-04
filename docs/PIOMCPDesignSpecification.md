@@ -56,18 +56,22 @@ mcp-server (Global System: os.homedir() / %USERPROFILE% via ~/.platformio-mcp/)
 
 Workspaces (Project Local: [ProjectDir]/.pio-mcp-workspace/)
 │
+├── registry/
+│   └── command_history.json      # Bounded chronological feed of unified commands (build/monitor)
+│
 ├── tasks/
-│   ├── active_tasks.json         # Active parallelizable processes (PIDs, task type, status)
+│   ├── active_tasks.json         # Active parallelizable processes (PIDs)
 │   └── build_logs/               # Task spool traces (e.g. build-1234.log)
 │
 └── serial_monitors/
-    ├── monitor-pids.json         # Workspace's discrete view of its tracked monitors
+    ├── monitor-pids.json         # Tracked monitor background PIDs
     └── logs/                     # Saved serial tracing outputs
 ```
 
 ### Global vs Workspace Scopes
 1. **Global Physical Resources (`~/.platformio-mcp/`)**: Because hardware (like a physical USB serial port) operates strictly as a system-wide singleton, its semaphore mechanisms must be hoisted completely out of the project repository. Including the OS locking `pid` locally within these structured global locks allows for `O(1)` atomic process replacement, resolving conflicts even when processes were fired from completely detached workspaces.
-2. **Project Local State (`.pio-mcp-workspace/`)**: Build queues, compiling, and specific serial logs are directly bound to the firmware code inside standard target repositories.
+2. **Project Local State (`.pio-mcp-workspace/`)**: Build queues, compiling, and specific serial logs are directly bound to the firmware code inside standard target repositories. 
+   - **Command Registry**: The core chronological feed (`registry/command_history.json`) merges all async build and monitor events into a single appended timeline, serving as the primary structured data source for the connected Web Portal UI rather than discrete task tracking files.
 
 ---
 
@@ -324,3 +328,54 @@ We proceed on the assumption that the `jl-codes/platformio-mcp` base has been cl
 20. Execute full unit test suite via mock directories, validating the token-reduction payloads.
 21. Manual integration testing on physical hardware.
 22. Code quality linting and package build execution.
+
+---
+
+## [Target MCP Tooling Configuration]
+
+### Rationale
+
+The MCP server acts as an intelligent orchestration layer prioritizing semantic abstraction and robust error handling, rather than functioning as a direct 1:1 proxy for the PlatformIO CLI.
+
+1. **Semantic Alignment:** Verbs are named to convey clear intent for language models (e.g., `build_project`, `start_monitor`, `check_project`) rather than mimicking CLI flags (`run`, `device_monitor`). Exposing generic commands like "run" forces LLMs to juggle complex flag logic. Instead, semantic verbs natively align with agent task planning.
+2. **Hybrid UI Delegation:** Complex system exploration and dependency management (such as searching/installing libraries inside a UI form) are delegated to the native `pio home` dashboard. Inside the intelligent UI loop, the server focuses solely on executing programmable commands and capturing execution streams, dramatically saving custom UI redesign effort.
+3. **Log Streaming / Bounded Lifecycles:** High-intensity operations (`pio test`, `pio check`, massive core updates) would normally exceed standard JSON-RPC HTTP timeout limits. The server requires natively dispatching these tools in the background by passing `background: true`, emitting raw stdout back to an observable frontend stream rather than holding the transaction loop open.
+
+### Target MCP Verbs Table
+
+| MCP Verb | Wrapping PIO Command | Description / Action | MCP Parameters | Streaming UI / Background Setup |
+| :--- | :--- | :--- | :--- | :--- |
+| `list_boards` | `pio boards` | Lists available boards. | `filter` (opt) | No |
+| `get_board_info` | `pio boards` | Gets exact board specs. | `boardId` (req) | No |
+| `list_devices` | `pio device list` | Lists serial ports and statuses. | None | No |
+| `init_project` | `pio project init` | Scaffolds new PIO project. | `board` (req), `framework` (opt), `projectDir` (req) | No |
+| `build_project` | `pio run` | Compiles project logic. | `projectDir` (req), `environment` (opt), `verbose` (opt), `background` (opt) | Yes (Long running) |
+| `clean_project` | `pio run -t clean` | Clears local CLI cache. | `projectDir` (req), `background` (opt) | Yes (Existing) |
+| `upload_firmware` | `pio run -t upload` | Flashes firmware to device. | `projectDir` (req), `port` (opt), `background` (opt), `start_monitor` (opt) | Yes (Existing) |
+| `upload_filesystem`| `pio run -t uploadfs` | Flashes SPIFFS/LittleFS structure. | `projectDir` (req), `port` (opt), `background` (opt) | Yes (Existing) |
+| `acquire_lock` | None (Internal) | Manually grabs global serial lock. | `sessionId` (req), `reason` (req) | No |
+| `release_lock` | None (Internal) | Manually frees global serial lock. | `sessionId` (req) | No |
+| `start_monitor` | `pio device monitor` | Connects serial background spooler. | `port` (opt), `baudRate` (opt), `projectDir` (req) | Yes (Native Buffer) |
+| `stop_monitor` | `None` (Internal) | Terminates active spool. | `port` (req), `projectDir` (req) | No |
+| `launch_pio_home` | `pio home --no-open` | Backgrounds native web console. | `open` (opt) | No |
+| `get_project_config` | `pio project config` | **[NEW]** Dumps platformio.ini JSON. | `projectDir` (req) | No |
+| `system_info` | `pio system info` | **[NEW]** Gets sys diagnostic path output. | None | No |
+| `check_project` | `pio check` | **[NEW]** Static analysis validation. | `projectDir` (req), `environment` (opt), `background` (opt) | **Yes** (Slow analysis) |
+| `run_tests` | `pio test` | **[NEW]** Validates unit tests locally/remote. | `projectDir` (req), `environment` (opt), `background` (opt) | **Yes** (Verbose output) |
+| `search_libraries` | `pio pkg search` | Searches the PIO registry. | `query` (req), `limit` (opt) | No |
+| `install_library` | `pio pkg install` | Installs a library globally/locally. | `library` (req), `projectDir` (opt), `version` (opt) | No |
+| `list_installed_libraries` | `pio pkg list` | Lists installed dependencies. | `projectDir` (opt) | No |
+| `uninstall_library`| `pio pkg uninstall` | **[NEW]** Removes target library. | `library` (req), `projectDir` (opt) | No |
+| `update_library` | `pio pkg update` | **[NEW]** Upgrades library versions. | `library` (req), `projectDir` (opt) | No |
+| `system_prune` | `pio system prune` | **[NEW]** Cleans global tools cache. | `force` (bool, opt) | No |
+
+### Deliberately Ignored / Deprecated PIO Commands
+
+To keep the MCP strict, safe, and scoped to the embedded feedback loop, several `pio` core namespaces were strategically excluded. Additionally, PIO v6 deprecates multiple legacy namespaces:
+
+1. **Deprecated Commands (PlatformIO v6)**: `pio lib`, `pio platform`, and `pio update` commands are officially deprecated in favor of the unified `pio pkg *` CLI interface. Using them is strongly discouraged.
+2. **Cloud & Organization Tools (`pio access`, `pio account`, `pio org`, `pio team`)**: These tools govern PlatformIO registry authentication and cloud resource sharing. This is traditionally a human-centric setup action, entirely out of scope for a local development agent.
+2. **CI Emulation (`pio ci`)**: While test suites are vital (hence `pio test`), `pio ci` simulates CI pipelines locally. Since the AI agent relies on direct source compilation (`pio run`), running simulated CI workflows is redundant overhead.
+3. **Interactive Debugger (`pio debug`)**: Initiating GDB/OpenOCD targets over the wire via MCP is structurally incompatible with the current asynchronous command registry. Bridging native debugger breakpoints via a JSON-RPC textual interface is too complex for this phase of the server.
+4. **Remote Orchestration (`pio remote`)**: Managing remote execution nodes is outside the domain of the local hardware orchestration we are solving for. 
+5. **Global Adjustments (`pio settings`, `pio upgrade`)**: Operations that alter the host machine's physical PIO CLI global settings or upgrade the core binary (`upgrade`) introduce immense system stability risks if an agent triggers them during a hallucination. The server acts on project scopes, preventing dangerous global mutations.

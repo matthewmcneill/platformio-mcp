@@ -10,6 +10,7 @@
 
 import { mkdir } from "fs/promises";
 import path from "path";
+import { z } from "zod";
 import { platformioExecutor } from "../platformio.js";
 import type { ProjectInitResult } from "../types.js";
 import {
@@ -133,31 +134,43 @@ export async function isValidProject(projectDir: string): Promise<boolean> {
  */
 export async function getProjectConfig(
   projectDir: string,
-): Promise<Record<string, unknown>> {
+): Promise<any> {
   const validatedPath = validateProjectPath(projectDir);
 
   try {
-    const result = await platformioExecutor.execute("project", ["config"], {
-      cwd: validatedPath,
-      timeout: 30000,
-    });
-
-    if (result.exitCode !== 0) {
-      throw new ProjectInitError(
-        `Failed to get project config: ${result.stderr}`,
-        { projectDir, stderr: result.stderr },
-      );
-    }
-
-    // Parse the config output (it's in INI format)
-    // For now, return raw output
-    return {
-      rawConfig: result.stdout,
-    };
+    const result = await platformioExecutor.executeWithJsonOutput(
+      "project",
+      ["config", "--json-output"],
+      z.any(),
+      {
+        cwd: validatedPath,
+        timeout: 30000,
+      }
+    );
+    return result;
   } catch (error) {
     throw new ProjectInitError(
       `Failed to get project configuration: ${error}`,
       { projectDir },
     );
+  }
+}
+
+/**
+ * Gets system diagnostic path output.
+ *
+ * @returns JSON payload of system information.
+ */
+export async function getSystemInfo(): Promise<any> {
+  try {
+    const result = await platformioExecutor.executeWithJsonOutput(
+      "system",
+      ["info", "--json-output"],
+      z.any(),
+      { timeout: 30000 }
+    );
+    return result;
+  } catch (error) {
+    throw new Error(`Failed to get system info: ${error}`);
   }
 }

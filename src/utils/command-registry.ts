@@ -9,17 +9,19 @@
  */
 
 import fs from "node:fs";
-import os from "node:os";
+
 import path from "node:path";
 import lockfile from "proper-lockfile";
 import { portalEvents } from "../api/events.js";
+import { SERVER_DATA_DIR, ensureGlobalDirs } from "./paths.js";
 
 const WORKSPACE_DIR = ".pio-mcp-workspace";
 const REGISTRY_FILE = "command_history.json";
 const MAX_HISTORY_ITEMS = 30;
 
 function getRegistryFilePath(projectDir?: string): string {
-  const baseDir = projectDir || os.tmpdir();
+  const baseDir = projectDir || SERVER_DATA_DIR;
+  if (!projectDir) ensureGlobalDirs();
   const dir = path.join(baseDir, WORKSPACE_DIR, "registry");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, REGISTRY_FILE);
@@ -28,19 +30,33 @@ function getRegistryFilePath(projectDir?: string): string {
 /**
  * Historical record of an executed command spanning builds or serial monitors.
  */
+export interface TaskRecord {
+  taskId: string; // Internal trace ID
+  type: "build" | "monitor" | "upload" | "test" | "debug"; // Classification of the executing process
+  status: "inactive" | "running" | "success" | "error" | "terminated"; // Real-time execution phase
+  logPaths?: string[]; // Optional array of mapped log file paths
+  port?: string; // Target hardware interface mapping
+  pid?: number; // Monitored system daemon integer
+  exitCode?: number; // CLI resulting integer status code
+  commandDesc?: string; // The exact CLI command passed to the terminal for this task
+  error?: string; // Descriptive error message if the task failed
+}
+
 export interface CommandRecord {
-  id: string; // Unique identifier for the command
-  timestamp: number; // Start time epoch
-  type: "build" | "monitor"; // Classification of the command
-  status: "running" | "success" | "error" | "terminated"; // Current process status
-  logFile?: string; // Optional pointer to disk-spooled output log
-  port?: string; // Optional context for monitor commands
-  pid?: number; // Optional system PID
-  exitCode?: number; // OS exit signal result
+  id: string; // The root invocation ID
+  commandDesc: string; // E.g., 'pio run -t upload'
+  timestamp: number; // Unix epoch of initiation
+  status: "running" | "success" | "error" | "terminated"; // Overall process status
+  tasks: TaskRecord[]; // Log outputs and child executions
+  mcpRequest?: any; // The exact parameters sent to the MCP tool
+  mcpResponse?: any; // The exact response payload returned to the agent
+  mcpToolName?: string; // The specific tool verb invoked (e.g. 'build_project')
+  source?: "agent" | "dashboard"; // Originating entity for the execution
+  error?: string; // Descriptive error message if the command failed
 }
 
 /**
- * Appends a new command record into the workspace command history.
+ * Appends a new command record into the workspace command history, or appends an artifact if the command exists.
  * @param record Initial status details of the command being spun up
  * @param projectDir Optional specific workspace
  */
@@ -56,14 +72,25 @@ export async function registerCommand(record: CommandRecord, projectDir?: string
         history = JSON.parse(fs.readFileSync(file, "utf8"));
       } catch {}
 
-      history.push(record);
-      // Keep only up to 30 items
-      if (history.length > MAX_HISTORY_ITEMS) {
-        history = history.slice(-MAX_HISTORY_ITEMS);
+      const existingIndex = history.findIndex(cmd => cmd.id === record.id);
+      if (existingIndex !== -1) {
+        // Just merge artifacts if appending to an existing command chain
+        const existingCmd = history[existingIndex];
+        record.tasks.forEach(newArt => {
+          if (!existingCmd.tasks.find(a => a.taskId === newArt.taskId)) {
+            existingCmd.tasks.push(newArt);
+          }
+        });
+        existingCmd.status = record.status;
+      } else {
+        history.push(record);
+        if (history.length > MAX_HISTORY_ITEMS) {
+          history = history.slice(-MAX_HISTORY_ITEMS);
+        }
       }
 
       fs.writeFileSync(file, JSON.stringify(history, null, 2));
-      portalEvents.emitCommandHistoryUpdated(projectDir || os.tmpdir());
+      portalEvents.emitCommandHistoryUpdated(projectDir || SERVER_DATA_DIR);
     } finally {
       await release();
     }
@@ -94,7 +121,57 @@ export async function updateCommandStatus(id: string, updates: Partial<CommandRe
       if (index !== -1) {
         history[index] = { ...history[index], ...updates };
         fs.writeFileSync(file, JSON.stringify(history, null, 2));
-        portalEvents.emitCommandHistoryUpdated(projectDir || os.tmpdir());
+        portalEvents.emitCommandHistoryUpdated(projectDir || SERVER_DATA_DIR);
+      }
+    } finally {
+      await release();
+    }
+  } catch (e: any) {
+    throw new Error(`Registry contention timeout: ${e.message}`);
+  }
+}
+
+/**
+ * Updates a specific nested task's status.
+ */
+export async function updateTaskStatus(commandId: string, taskId: string, updates: Partial<TaskRecord>, projectDir?: string): Promise<void> {
+  const file = getRegistryFilePath(projectDir);
+  if (!fs.existsSync(file)) return;
+
+  try {
+    const release = await lockfile.lock(file, { retries: { retries: 5, minTimeout: 50, maxTimeout: 200 } });
+    try {
+      let history: CommandRecord[] = [];
+      try {
+        history = JSON.parse(fs.readFileSync(file, "utf8"));
+      } catch {}
+
+      const cmdIndex = history.findIndex((cmd) => cmd.id === commandId);
+      if (cmdIndex !== -1) {
+        const cmd = history[cmdIndex];
+        const artIndex = cmd.tasks?.findIndex((art) => art.taskId === taskId) ?? -1;
+        if (artIndex !== -1) {
+          cmd.tasks[artIndex] = { ...cmd.tasks[artIndex], ...updates };
+
+          // Automatically roll up statuses (if all tasks are success, parent is success)
+          const allSuccess = cmd.tasks.every(a => a.status === 'success');
+          const anyError = cmd.tasks.some(a => a.status === 'error');
+          const anyRunning = cmd.tasks.some(a => a.status === 'running');
+          
+          if (anyError) {
+            cmd.status = 'error';
+            const failedTask = cmd.tasks.find(a => a.status === 'error' && a.error);
+            if (failedTask?.error) {
+              cmd.error = failedTask.error;
+            }
+          }
+          else if (anyRunning) cmd.status = 'running';
+          else if (allSuccess) cmd.status = 'success';
+          else cmd.status = 'terminated';
+
+          fs.writeFileSync(file, JSON.stringify(history, null, 2));
+          portalEvents.emitCommandHistoryUpdated(projectDir || SERVER_DATA_DIR);
+        }
       }
     } finally {
       await release();
