@@ -55,9 +55,10 @@ import { checkPlatformIOInstalled } from "./platformio.js";
 import { formatPlatformIOError } from "./utils/errors.js";
 import { hardwareLockManager } from "./utils/lock-manager.js";
 import { killAllTrackedProcesses } from "./utils/process-manager.js";
-import { LOCKS_DIR } from "./utils/paths.js";
+import { GLOBAL_LOCKS_DIR } from "./utils/paths.js";
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 import { logDiagnostic as logDiag } from "./utils/logger.js";
 import { getDashboardStatus } from "./api/server.js";
 import { portalEvents } from "./api/events.js";
@@ -479,6 +480,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const activityId = crypto.randomUUID();
   portalEvents.emitActivity(name, args, 'running', activityId);
 
+  logDiag(`[Command Execution] Tool invoked: '${name}' with arguments: ${JSON.stringify(args)}`, args.projectDir);
+
   try {
     const response = await (async () => {
       switch (name) {
@@ -760,10 +763,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Release OS-level Semaphores
         try {
-          if (fs.existsSync(LOCKS_DIR)) {
-            for (const file of fs.readdirSync(LOCKS_DIR)) {
-              if (file.endsWith(".lock")) {
-                fs.unlinkSync(path.join(LOCKS_DIR, file));
+          if (fs.existsSync(GLOBAL_LOCKS_DIR)) {
+            for (const file of fs.readdirSync(GLOBAL_LOCKS_DIR)) {
+              if (file.endsWith(".json") || file.endsWith(".lock")) {
+                fs.unlinkSync(path.join(GLOBAL_LOCKS_DIR, file));
               }
             }
           }
@@ -830,12 +833,43 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
+  // Attempt to recover detached processes and history
+  try {
+    const { rehydrateMonitors } = await import("./tools/monitor.js");
+    const { getWorkspaces } = await import("./utils/workspace-registry.js");
+    
+    await rehydrateMonitors();
+    
+    // Set UI target to the most recent workspace gracefully
+    const workspaces = await getWorkspaces();
+    if (workspaces.length > 0 && !portalEvents.getLastKnownWorkspace()) {
+      portalEvents.emitWorkspaceState(workspaces[workspaces.length - 1]);
+    }
+  } catch (e) {
+    logDiag(`[Server Reboot] Boot rehydration encountered an error: ${e}`);
+  }
+
   if (process.argv.includes("--open-dashboard-on-start") || process.env.PIO_MCP_OPEN_DASH_ON_START === "true") {
     getDashboardStatus(true).catch((e) => logDiag(`[Dashboard] ${e.message}`));
   }
 
-  logDiag("PlatformIO MCP Server running on stdio");
-  logDiag("Server supports 1000+ boards across 30+ platforms");
+  let gitHash = "unknown";
+  try {
+    const currentDir = path.dirname(new URL(import.meta.url).pathname);
+    gitHash = execSync("git rev-parse --short HEAD", { cwd: currentDir, stdio: "pipe" }).toString().trim();
+  } catch (e) {}
+
+  let version = "1.0.0";
+  try {
+    const currentDir = path.dirname(new URL(import.meta.url).pathname);
+    const pkg = JSON.parse(fs.readFileSync(path.join(currentDir, "../package.json"), "utf8"));
+    version = pkg.version;
+  } catch (e) {}
+
+  logDiag("\n\n=======================================================");
+  logDiag(`🚀 PlatformIO MCP Server v${version} (Build: ${gitHash}) running on stdio`);
+  logDiag("🚀 Server supports 1000+ boards across 30+ platforms");
+  logDiag("=======================================================\n");
 }
 
 main().catch((error) => {

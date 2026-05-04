@@ -12,18 +12,19 @@ import os from "node:os";
 import path from "node:path";
 import { platformioExecutor } from "../platformio.js";
 import { registerBuildPid, unregisterBuildPid, isBuildActive } from "./process-manager.js";
-import { portalEvents } from "../api/events.js";
 import { portSemaphoreManager } from "./semaphore.js";
 import { tailFileBounded } from "./tail.js";
+import { registerCommand, updateCommandStatus } from "./command-registry.js";
+import crypto from "node:crypto";
 
 const WORKSPACE_DIR = ".pio-mcp-workspace";
-const LOGS_DIR = "build_logs";
+const LOGS_DIR = "tasks/build_logs";
 
 function getLogDir(projectDir?: string): string {
   const baseDir = projectDir || os.tmpdir();
   return path.join(baseDir, WORKSPACE_DIR, LOGS_DIR);
 }
-
+import { logDiagnostic as logDiag } from "./logger.js";
 /**
  * Cleans out old log trace files adhering to an upper boundary limit.
  *
@@ -125,8 +126,19 @@ export async function executeWithSpooling(
     detached: false
   });
 
+  const commandId = crypto.randomUUID();
+
   if (proc.pid) {
+    logDiag(`[Spooler] Spawning task command: \`${command} ${args.join(" ")}\` with Build ID/PID: ${proc.pid}`, projectArea);
     await registerBuildPid(proc.pid, projectArea);
+    await registerCommand({
+      id: commandId,
+      timestamp: Date.now(),
+      type: "build",
+      status: "running",
+      logFile: logFile,
+      pid: proc.pid
+    }, projectArea).catch(e => logDiag(`[Spooler] Registry fail: ${e.message}`, projectArea));
   }
 
   try {
@@ -146,7 +158,7 @@ export async function executeWithSpooling(
         try {
           const stat = fs.statSync(logFile);
           if (stat.size > fileOffset) {
-            const stream = fs.createReadStream(logFile, { start: fileOffset });
+            const stream = fs.createReadStream(logFile, { start: fileOffset, end: stat.size - 1 });
             stream.on('data', (chunk) => {
               portalEvents.emitBuildLog(projectArea, chunk.toString());
             });
@@ -192,12 +204,35 @@ export async function executeWithSpooling(
 
     p.catch(e => {
       console.error(`[Background Task Error]: ${e.message}`);
+      updateCommandStatus(commandId, { status: "error" }, projectArea).catch(() => {});
       return 1;
     }).then(async (code) => {
+      await updateCommandStatus(commandId, { 
+        status: code === 0 ? "success" : "error",
+        exitCode: code 
+      }, projectArea).catch(() => {});
       await unregisterBuildPid(projectArea);
       if (options.activePort) portSemaphoreManager.releasePort(options.activePort);
       try { fs.closeSync(outFd); } catch {}
-      if (watcher) { try { watcher.close(); } catch {} }
+      if (watcher) {
+        // ARCHITECTURAL EXCEPTION: While synchronous fs calls are broadly banned to prevent 
+        // event loop blocking, fs.statSync and fs.readSync are mathematically required here 
+        // at the exact nanosecond of process termination. Using asynchronous promises yields 
+        // to the event loop, causing the FSEvents watcher to close before the OS can flush 
+        // the final chunk event, permanently dropping the trailing output lines from the UI.
+        try {
+          const stat = fs.statSync(logFile);
+          if (stat.size > fileOffset) {
+            const buffer = Buffer.alloc(stat.size - fileOffset);
+            const fd = fs.openSync(logFile, "r");
+            fs.readSync(fd, buffer, 0, buffer.length, fileOffset);
+            fs.closeSync(fd);
+            portalEvents.emitBuildLog(projectArea, buffer.toString());
+            fileOffset = stat.size;
+          }
+        } catch {}
+        try { watcher.close(); } catch {}
+      }
 
       if (code === 0 && options.onSuccess) {
         try {
@@ -240,6 +275,11 @@ export async function executeWithSpooling(
     });
   });
 
+  await updateCommandStatus(commandId, { 
+    status: exitCode === 0 ? "success" : "error",
+    exitCode 
+  }, projectArea).catch(() => {});
+
   // Cleanup
   await unregisterBuildPid(projectArea);
   if (options.activePort) portSemaphoreManager.releasePort(options.activePort);
@@ -247,6 +287,22 @@ export async function executeWithSpooling(
     fs.closeSync(outFd);
   } catch {}
   if (watcher) {
+    // ARCHITECTURAL EXCEPTION: While synchronous fs calls are broadly banned to prevent 
+    // event loop blocking, fs.statSync and fs.readSync are mathematically required here 
+    // at the exact nanosecond of process termination. Using asynchronous promises yields 
+    // to the event loop, causing the FSEvents watcher to close before the OS can flush 
+    // the final chunk event, permanently dropping the trailing output lines from the UI.
+    try {
+      const stat = fs.statSync(logFile);
+      if (stat.size > fileOffset) {
+        const buffer = Buffer.alloc(stat.size - fileOffset);
+        const fd = fs.openSync(logFile, "r");
+        fs.readSync(fd, buffer, 0, buffer.length, fileOffset);
+        fs.closeSync(fd);
+        portalEvents.emitBuildLog(projectArea, buffer.toString());
+        fileOffset = stat.size;
+      }
+    } catch {}
     try { watcher.close(); } catch {}
   }
 

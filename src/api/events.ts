@@ -8,6 +8,7 @@
 import { EventEmitter } from "events";
 import fs from "node:fs";
 import path from "node:path";
+import { addWorkspace } from "../utils/workspace-registry.js";
 
 class PortalEventEmitter extends EventEmitter {
   constructor() {
@@ -136,6 +137,16 @@ class PortalEventEmitter extends EventEmitter {
     this.emit("spooler_states", states);
   }
 
+  /**
+   * Emit an update signal when the command history registry changes
+   */
+  emitCommandHistoryUpdated(projectDir: string) {
+    this.emit("command_history_updated", {
+      timestamp: Date.now(),
+      projectDir,
+    });
+  }
+
   private lastKnownProjectDir?: string;
 
   /**
@@ -143,6 +154,10 @@ class PortalEventEmitter extends EventEmitter {
    */
   emitWorkspaceState(projectDir: string) {
     this.lastKnownProjectDir = projectDir;
+    
+    // Dynamically persist to the server-level tracking registry
+    addWorkspace(projectDir);
+
     this.emit("workspace_state", {
       timestamp: Date.now(),
       projectDir,
