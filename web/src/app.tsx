@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import WorkspaceCockpit from './components/workspace-cockpit.js';
-
+import { ConfigProvider, theme } from 'antd';
 // Connect to the background PIO local express server
 const parsedToken = new URLSearchParams(window.location.search).get('token') || '';
+const parsedProjectDir = new URLSearchParams(window.location.search).get('projectDir') || null;
 // Detect API base implicitly during local development
 const apiBase = window.location.origin.includes('localhost:5173') ? 'http://localhost:8080' : '';
 const socket: Socket = io(apiBase || '/', { auth: { token: parsedToken } });
@@ -42,17 +43,18 @@ export type LockState = {
 
 export type TabRef = {
   commandId: string;
-  artifactId: string;
+  taskId: string;
 };
 
 function App() {
   const [status, setStatus] = useState<'online' | 'offline'>('offline');
+  const [authStatus, setAuthStatus] = useState<'checking' | 'valid' | 'invalid'>(parsedToken ? 'checking' : 'invalid');
   const [commands, setCommands] = useState<any[]>([]);
   const [buildLogs, setBuildLogs] = useState<Record<string, LogEvent[]>>({});
   const [buildLogFile, setBuildLogFile] = useState<string | null>(null);
   const [serialLogs, setSerialLogs] = useState<Record<string, LogEvent[]>>({});
   const [spoolerStates, setSpoolerStates] = useState<Record<string, SpoolerState>>({});
-  const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null);
+  const [activeWorkspace, setActiveWorkspace] = useState<string | null>(parsedProjectDir);
   const [lockState, setLockState] = useState<LockState>({ isLocked: false });
 
   const [openTabs, setOpenTabs] = useState<TabRef[]>([]);
@@ -60,48 +62,109 @@ function App() {
   const [historicalLogBuffer, setHistoricalLogBuffer] = useState<Record<string, string>>({}); // mapped by artifactId
   const [hardwareDevices, setHardwareDevices] = useState<any[]>([]);
 
+  // Project Selector & Auto-Track
+  const [knownWorkspaces, setKnownWorkspaces] = useState<string[]>([]);
+  const [autoTrack, setAutoTrack] = useState<boolean>(true);
+
+  const activeWorkspaceRef = useRef(activeWorkspace);
+  const autoTrackRef = useRef(autoTrack);
+
+  useEffect(() => {
+    activeWorkspaceRef.current = activeWorkspace;
+  }, [activeWorkspace]);
+
+  useEffect(() => {
+    autoTrackRef.current = autoTrack;
+  }, [autoTrack]);
+
   // Fetch initial hardware
   const fetchHardware = async () => {
     try {
-      const res = await fetch(`${apiBase}/api/hardware`, { headers: { 'Authorization': `Bearer ${parsedToken}` } });
+      const res = await fetch(`${apiBase}/api/hardware`, { 
+        headers: { 'Authorization': `Bearer ${parsedToken}` },
+        cache: 'no-store'
+      });
       if (res.ok) {
         setHardwareDevices(await res.json());
+      } else if (res.status === 401) {
+        setAuthStatus('invalid');
       }
     } catch {}
   };
 
+  const fetchWorkspaces = async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/workspaces`, { 
+        headers: { 'Authorization': `Bearer ${parsedToken}` },
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        setKnownWorkspaces(await res.json());
+      } else if (res.status === 401) {
+        setAuthStatus('invalid');
+      }
+    } catch {}
+  };
+
+  // Auto-select first workspace if none is active
+  useEffect(() => {
+    if (!activeWorkspace && knownWorkspaces.length > 0) {
+      setActiveWorkspace(knownWorkspaces[0]);
+    }
+  }, [activeWorkspace, knownWorkspaces]);
+
   // Auto-select latest command if none selected? We wait for user to click in IDE mode.
   // We can just keep it empty on load.
 
-  // Fetch full log from disk if a historical command artifact is selected
+  // Fetch full log from disk if a historical command task is selected
   useEffect(() => {
     if (!activeTabRef) return;
     
+    // Fallback to history lookup if not live
+    const activeHistoricalLog = activeTabRef ? historicalLogBuffer[activeTabRef.taskId] : undefined;
+
     // Check if we already have it buffered
-    if (historicalLogBuffer[activeTabRef.artifactId]) return;
+    if (activeHistoricalLog !== undefined) return;
 
-    const cmd = commands.find(c => c.id === activeTabRef.commandId);
-    if (!cmd) return;
+    let artifact: any = null;
+    let actualCommandId = activeTabRef.commandId;
     
-    const artifact = cmd.artifacts?.find((a: any) => a.id === activeTabRef.artifactId);
-    if (!artifact) return;
+    const cmd = commands.find(c => c.id === activeTabRef.commandId);
+    if (cmd) {
+      artifact = cmd.tasks?.find((a: any) => a.taskId === activeTabRef.taskId);
+    }
+    
+    if (!artifact) {
+      for (const c of commands) {
+        const found = c.tasks?.find((a: any) => a.taskId === activeTabRef.taskId);
+        if (found) {
+          artifact = found;
+          actualCommandId = c.id;
+          break;
+        }
+      }
+    }
 
+    if (!artifact) return;
     if (artifact.status === 'running') return; // rely on live websocket
     
     const fetchLogFile = async () => {
-      setHistoricalLogBuffer(prev => ({ ...prev, [activeTabRef.artifactId]: "Hydrating static log payload..." }));
+      setHistoricalLogBuffer(prev => ({ ...prev, [activeTabRef.taskId]: "Hydrating static log payload..." }));
       try {
-        let url = `${apiBase}/api/logs?commandId=${encodeURIComponent(activeTabRef.commandId)}&artifactId=${encodeURIComponent(activeTabRef.artifactId)}`;
+        let url = `${apiBase}/api/logs?commandId=${encodeURIComponent(actualCommandId)}&taskId=${encodeURIComponent(activeTabRef.taskId)}`;
         if (activeWorkspace) url += `&projectDir=${encodeURIComponent(activeWorkspace)}`;
-        const res = await fetch(url, { headers: { 'Authorization': `Bearer ${parsedToken}` } });
+        const res = await fetch(url, { 
+          headers: { 'Authorization': `Bearer ${parsedToken}` },
+          cache: 'no-store'
+        });
         if (res.ok) {
            const logContent = await res.text();
-           setHistoricalLogBuffer(prev => ({ ...prev, [activeTabRef.artifactId]: logContent }));
+           setHistoricalLogBuffer(prev => ({ ...prev, [activeTabRef.taskId]: logContent }));
         } else {
-           setHistoricalLogBuffer(prev => ({ ...prev, [activeTabRef.artifactId]: `Failed to map historical log: ${res.statusText}` }));
+           setHistoricalLogBuffer(prev => ({ ...prev, [activeTabRef.taskId]: `Failed to map historical log: ${res.statusText}` }));
         }
       } catch (err) {
-        setHistoricalLogBuffer(prev => ({ ...prev, [activeTabRef.artifactId]: `Failed to fetch log payload via REST.` }));
+        setHistoricalLogBuffer(prev => ({ ...prev, [activeTabRef.taskId]: `Failed to fetch log payload via REST.` }));
       }
     };
     fetchLogFile();
@@ -114,35 +177,76 @@ function App() {
       if (projectDir) url += `?projectDir=${encodeURIComponent(projectDir)}`;
       
       const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${parsedToken}` }
+        headers: { 'Authorization': `Bearer ${parsedToken}` },
+        cache: 'no-store'
       });
       if (response.ok) {
         const data = await response.json();
         setCommands(data);
+      } else if (response.status === 401) {
+        setAuthStatus('invalid');
       }
     } catch (e) {
       console.error('Failed to fetch command history', e);
     }
   };
 
+  // Rehydrate command history when workspace context switches
   useEffect(() => {
+    if (activeWorkspace) {
+      fetchCommandHistory(activeWorkspace);
+      fetchWorkspaces();
+    }
+  }, [activeWorkspace]);
+
+  useEffect(() => {
+    if (socket.connected) {
+      setAuthStatus('valid');
+    }
+
+    socket.on('connect_error', (err) => {
+      if (err.message === 'Unauthorized') {
+        setAuthStatus('invalid');
+      }
+    });
+
+    socket.on('connect', () => {
+      setAuthStatus('valid');
+    });
+
     socket.on('server_status', (data) => {
       setStatus(data.status);
     });
 
     socket.on('command_history_updated', (data) => {
-      fetchCommandHistory(data.projectDir);
+      // Auto-Track Context Pivot
+      if (autoTrackRef.current && data.projectDir && data.projectDir !== activeWorkspaceRef.current) {
+        setActiveWorkspace(data.projectDir);
+      }
+      
+      // Only fetch the command history if the event belongs to our currently active dashboard view 
+      // (or if we just auto-switched to it via the block above)
+      if (data.projectDir === activeWorkspaceRef.current || (autoTrackRef.current && data.projectDir)) {
+        fetchCommandHistory(data.projectDir);
+      }
     });
 
     socket.on('workspace_state', (data: { projectDir: string }) => {
-      setActiveWorkspace(data.projectDir);
-      fetchCommandHistory(data.projectDir);
+      if (autoTrackRef.current) {
+        setActiveWorkspace(data.projectDir);
+        fetchCommandHistory(data.projectDir);
+      }
+      fetchWorkspaces();
     });
 
-    socket.on('build_log', (data: LogEvent) => {
-      if (!data.artifactId) return;
+    socket.on('workspaces_updated', (data: { workspaces: string[] }) => {
+      setKnownWorkspaces(data.workspaces);
+    });
+
+    socket.on('build_log', (data: LogEvent & { taskId?: string }) => {
+      const id = data.artifactId || data.taskId;
+      if (!id) return;
       setBuildLogs(prev => {
-        const id = data.artifactId!;
         const next = [...(prev[id] || []), data];
         return {
           ...prev,
@@ -151,11 +255,12 @@ function App() {
       });
     });
 
-    socket.on('build_clear', (data: { logFile?: string, artifactId?: string }) => {
-      if (data.artifactId) {
+    socket.on('build_clear', (data: { logFile?: string, artifactId?: string, taskId?: string }) => {
+      const id = data.artifactId || data.taskId;
+      if (id) {
         setBuildLogs(prev => {
           const next = { ...prev };
-          delete next[data.artifactId!];
+          delete next[id];
           return next;
         });
       } else {
@@ -168,10 +273,10 @@ function App() {
       setBuildLogFile(data.logFile || null);
     });
 
-    socket.on('serial_log', (data: LogEvent) => {
-      if (!data.artifactId) return;
+    socket.on('serial_log', (data: LogEvent & { taskId?: string }) => {
+      const id = data.artifactId || data.taskId;
+      if (!id) return;
       setSerialLogs(prev => {
-        const id = data.artifactId!;
         const portLogs = prev[id] || [];
         const next = [...portLogs, data];
         return {
@@ -181,11 +286,12 @@ function App() {
       });
     });
 
-    socket.on('serial_clear', (data: { port: string, artifactId?: string }) => {
-      if (data.artifactId) {
+    socket.on('serial_clear', (data: { port: string, artifactId?: string, taskId?: string }) => {
+      const id = data.artifactId || data.taskId;
+      if (id) {
         setSerialLogs(prev => {
           const next = { ...prev };
-          delete next[data.artifactId!];
+          delete next[id];
           return next;
         });
       } else {
@@ -208,8 +314,11 @@ function App() {
     // Initial manual fetch incase WS event missed
     fetchCommandHistory();
     fetchHardware();
+    fetchWorkspaces();
 
     return () => {
+      socket.off('connect_error');
+      socket.off('connect');
       socket.off('server_status');
       socket.off('command_history_updated');
       socket.off('build_log');
@@ -224,25 +333,86 @@ function App() {
     };
   }, []);
 
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
+
+  if (authStatus === 'invalid') {
+    return (
+      <ConfigProvider theme={{ algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm }}>
+        <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: isDarkMode ? '#1E1E1E' : '#ffffff', flexDirection: 'column', gap: 24 }}>
+          <img src="/pio_mcp_220x220.png" alt="PIO MCP" style={{ height: '80px', width: '80px', objectFit: 'contain' }} />
+          <div style={{ color: isDarkMode ? '#989898' : '#333333', fontSize: '18px', fontFamily: 'Fira Code, monospace', textAlign: 'center' }}>
+            Access Denied: The dashboard token is invalid or has expired.
+          </div>
+        </div>
+      </ConfigProvider>
+    );
+  }
+
+  if (authStatus === 'checking') {
+    return (
+      <ConfigProvider theme={{ algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm }}>
+        <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', backgroundColor: isDarkMode ? '#1E1E1E' : '#ffffff' }}>
+          <img src="/pio_mcp_220x220.png" alt="PIO MCP" style={{ height: '60px', width: '60px', objectFit: 'contain', opacity: 0.3, animation: 'pulse 1.5s infinite' }} />
+          <style>{`
+            @keyframes pulse {
+              0% { opacity: 0.3; transform: scale(1); }
+              50% { opacity: 0.8; transform: scale(1.05); }
+              100% { opacity: 0.3; transform: scale(1); }
+            }
+          `}</style>
+        </div>
+      </ConfigProvider>
+    );
+  }
+
   return (
-    <WorkspaceCockpit 
-      status={status}
-      commands={commands}
-      buildLogs={buildLogs}
-      buildLogFile={buildLogFile || undefined}
-      serialLogs={serialLogs}
-      spoolerStates={spoolerStates}
-      activeWorkspace={activeWorkspace}
-      lockState={lockState}
-      openTabs={openTabs}
-      setOpenTabs={setOpenTabs}
-      activeTabRef={activeTabRef}
-      setActiveTabRef={setActiveTabRef}
-      historicalLogBuffer={historicalLogBuffer}
-      hardware={hardwareDevices}
-      apiBase={apiBase}
-      token={parsedToken}
-    />
+    <ConfigProvider
+      theme={{
+        algorithm: isDarkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
+        token: {
+          colorPrimary: '#4080D0',
+          colorBgBase: isDarkMode ? '#1E1E1E' : '#ffffff',
+          colorText: isDarkMode ? '#989898' : '#333333',
+        },
+        components: {
+          Layout: {
+            siderBg: isDarkMode ? '#323232' : '#ffffff',
+            headerBg: isDarkMode ? '#323232' : '#ececec',
+            bodyBg: isDarkMode ? '#1E1E1E' : '#ffffff',
+          },
+          Menu: {
+            darkItemBg: '#323232',
+            darkItemColor: '#989898',
+            darkItemSelectedBg: '#4080D0',
+          }
+        }
+      }}
+    >
+      <WorkspaceCockpit 
+        status={status}
+        commands={commands}
+        buildLogs={buildLogs}
+        buildLogFile={buildLogFile || undefined}
+        serialLogs={serialLogs}
+        spoolerStates={spoolerStates}
+        activeWorkspace={activeWorkspace}
+        lockState={lockState}
+        openTabs={openTabs}
+        setOpenTabs={setOpenTabs}
+        activeTabRef={activeTabRef}
+        setActiveTabRef={setActiveTabRef}
+        historicalLogBuffer={historicalLogBuffer}
+        hardware={hardwareDevices}
+        apiBase={apiBase}
+        token={parsedToken}
+        isDarkMode={isDarkMode}
+        setIsDarkMode={setIsDarkMode}
+        knownWorkspaces={knownWorkspaces}
+        setActiveWorkspace={setActiveWorkspace}
+        autoTrack={autoTrack}
+        setAutoTrack={setAutoTrack}
+      />
+    </ConfigProvider>
   );
 }
 

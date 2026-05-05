@@ -15,7 +15,7 @@ import { execSync } from "node:child_process";
 import treeKill from "tree-kill";
 import lockfile from "proper-lockfile";
 import { logDiagnostic as logDiag } from "./logger.js";
-import { registerCommand, updateCommandStatus, updateTaskStatus, getCommandHistory } from "./command-registry.js";
+import { registerCommand, updateTaskStatus, getCommandHistory } from "./command-registry.js";
 import crypto from "node:crypto";
 import { SERVER_DATA_DIR, ensureGlobalDirs } from "./paths.js";
 
@@ -207,9 +207,12 @@ export function isPidAlive(pid: number): boolean {
         if (!stdout.includes("platformio") && !stdout.includes("pio") && !stdout.includes("python")) {
           return false;
         }
-        if (stdout.includes("defunct") || stdout.includes("zombie")) {
-          return false;
-        }
+        try {
+          const stat = execSync(`ps -p ${pid} -o stat=`, { encoding: "utf8" }).trim().toUpperCase();
+          if (stat.startsWith("Z")) {
+            return false;
+          }
+        } catch {}
       } catch {
         // ps fails -> process probably dead or inaccessible
         return false;
@@ -305,57 +308,40 @@ export async function unregisterBuildPid(projectDir?: string): Promise<void> {
  * Wipes out all stray tracked processes across serial instances and builds.
  * Specifically used by emergency reset routines to return the system to a clean state.
  */
-export function killAllTrackedProcesses(projectDir?: string): Promise<void> {
-  return new Promise((resolve) => {
-    let tasks: Promise<void>[] = [];
-    
-    for (const file of [SERIAL_PIDS_FILE, BUILD_PIDS_FILE]) {
-      const pidsFile = getPidsFilePath(projectDir, file);
-      if (fs.existsSync(pidsFile)) {
-        try {
-          const pids: Record<string, any> = JSON.parse(fs.readFileSync(pidsFile, "utf8"));
-          for (const key of Object.keys(pids)) {
-            let targetPid: number | undefined;
-            if (file === BUILD_PIDS_FILE) {
-              if (pids[key]?.type === "build" || key === "build") {
-                targetPid = key === "build" ? pids[key] : Number(key);
-              }
-            } else {
-              targetPid = pids[key];
+export async function killAllTrackedProcesses(projectDir?: string): Promise<void> {
+  const tasks: Promise<void>[] = [];
+  
+  for (const file of [SERIAL_PIDS_FILE, BUILD_PIDS_FILE]) {
+    const pidsFile = getPidsFilePath(projectDir, file);
+    if (fs.existsSync(pidsFile)) {
+      try {
+        const pids: Record<string, any> = JSON.parse(fs.readFileSync(pidsFile, "utf8"));
+        for (const key of Object.keys(pids)) {
+          let targetPid: number | undefined;
+          if (file === BUILD_PIDS_FILE) {
+            if (pids[key]?.type === "build" || key === "build") {
+              targetPid = key === "build" ? pids[key] : Number(key);
             }
-            if (targetPid) {
-              logDiag(`[ProcessManager Diagnostic] Emergency killing tracked PID ${targetPid} via ${file}.`, projectDir);
-              const p = new Promise<void>((res) => {
-                treeKill(targetPid!, "SIGKILL", () => res());
-              });
-              tasks.push(p);
-            }
+          } else {
+            targetPid = pids[key];
           }
-          fs.unlinkSync(pidsFile);
-        } catch {}
-      }
-    }
-    
-    // Fallback: also aggressively kill any orphaned PIDs still marked as "running" in the ledger
-    try {
-      const history = getCommandHistory(projectDir);
-      for (const cmd of history) {
-        if (cmd.status === "running" && cmd.tasks) {
-          for (const task of cmd.tasks) {
-            if (task.status === "running" && task.pid) {
-              logDiag(`[ProcessManager Diagnostic] Emergency killing orphaned history PID ${task.pid} for task ${task.taskId}.`, projectDir);
-              const p = new Promise<void>((res) => {
-                treeKill(task.pid!, "SIGKILL", () => res());
-              });
-              tasks.push(p);
-            }
+          if (targetPid) {
+            logDiag(`[ProcessManager Diagnostic] Emergency killing tracked PID ${targetPid} via ${file}.`, projectDir);
+            const p = new Promise<void>((res) => {
+              treeKill(targetPid!, "SIGKILL", () => res());
+            });
+            tasks.push(p);
           }
         }
-      }
-    } catch {}
-
-    Promise.all(tasks).then(() => resolve());
-  });
+        fs.unlinkSync(pidsFile);
+      } catch {}
+    }
+  }
+  
+  await Promise.all(tasks);
+  
+  // Ensure the command registry is immediately synchronized with reality
+  await sweepGhostTasks(projectDir);
 }
 
 /**
@@ -368,41 +354,22 @@ export async function sweepGhostTasks(projectDir?: string): Promise<void> {
     let changed = false;
 
     for (const cmd of history) {
-      if (cmd.status === "running") {
-        let anyTaskRunning = false;
+      if (cmd.tasks) {
+        for (const task of cmd.tasks) {
+          if (task.status === "running") {
+            const pid = task.pid;
+            let isAlive = false;
+            if (pid && isPidAlive(pid)) {
+              isAlive = true;
+            }
 
-        if (cmd.tasks && cmd.tasks.length > 0) {
-          for (const task of cmd.tasks) {
-            if (task.status === "running") {
-              const pid = task.pid;
-              let isAlive = false;
-              if (pid && isPidAlive(pid)) {
-                isAlive = true;
-              }
-
-              if (!isAlive) {
-                // Task is dead! Force transition to terminated
-                await updateTaskStatus(cmd.id, task.taskId, { status: "terminated" }, projectDir);
-                logDiag(`[Ghost Sweeper] Cleaned up orphaned ghost task ${task.taskId} (PID: ${pid || 'Unknown'})`, projectDir);
-                changed = true;
-              } else {
-                anyTaskRunning = true;
-              }
+            if (!isAlive) {
+              // Task is dead! Force transition to terminated
+              await updateTaskStatus(cmd.id, task.taskId, { status: "terminated" }, projectDir);
+              logDiag(`[Ghost Sweeper] Cleaned up orphaned ghost task ${task.taskId} (PID: ${pid || 'Unknown'})`, projectDir);
+              changed = true;
             }
           }
-        }
-
-        if (!anyTaskRunning && !changed) {
-           const allSuccess = cmd.tasks?.every(a => a.status === 'success') ?? false;
-           const anyError = cmd.tasks?.some(a => a.status === 'error') ?? false;
-           
-           let finalStatus: "success" | "error" | "terminated" = "terminated";
-           if (anyError) finalStatus = "error";
-           else if (allSuccess && cmd.tasks && cmd.tasks.length > 0) finalStatus = "success";
-           
-           await updateCommandStatus(cmd.id, { status: finalStatus }, projectDir);
-           logDiag(`[Ghost Sweeper] Cleaned up stuck ghost command ${cmd.id}`, projectDir);
-           changed = true;
         }
       }
     }

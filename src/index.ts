@@ -433,7 +433,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "check_task_status",
-        description: "Polls the status of an ongoing background task.",
+        description: "Polls the status of an ongoing background task. Returns a JSON object where `status` indicates the success of the polling operation itself, and `targetStatus` (running, failed, completed) indicates the state of the actual background task.",
         inputSchema: {
           type: "object",
           properties: {
@@ -537,11 +537,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name } = request.params;
   const args: any = request.params.arguments || {};
   if (args.projectDir) {
-    try {
-      portalEvents.emitWorkspaceState(args.projectDir);
-    } catch (e: any) {
-      logDiag(`[Middleware] Workspace validation deferred: ${e.message}`, args.projectDir);
-    }
+    portalEvents.emitWorkspaceState(args.projectDir);
   }
 
   const activityId = crypto.randomUUID();
@@ -947,8 +943,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     } catch {}
 
+    let isBackground = false;
+    try {
+      if (response?.content?.[0]?.text) {
+        const parsed = JSON.parse(response.content[0].text);
+        if (parsed.status === "running" && parsed.message === "Task dispatched to background.") isBackground = true;
+      }
+    } catch {}
+
     await updateCommandStatus(activityId, {
-      status: "success",
+      status: isBackground ? "running" : "success",
       mcpResponse: storedResponse
     }, targetProjectDir);
 

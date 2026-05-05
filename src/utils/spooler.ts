@@ -188,7 +188,7 @@ export async function executeWithSpooling(
   } catch {}
 
   // 4. Wait for termination
-  const timeoutMs = options.timeout ?? 600000;
+  const timeoutMs = options.timeout ?? (options.background ? 3600000 : 600000);
 
   if (options.background) {
     const p = new Promise<number>((resolve, reject) => {
@@ -214,7 +214,7 @@ export async function executeWithSpooling(
         reject(err);
       });
 
-      proc.on("close", (code) => {
+      proc.on("exit", (code) => {
         clearTimeout(timer);
         resolve(code ?? 1);
       });
@@ -297,7 +297,7 @@ export async function executeWithSpooling(
       reject(err);
     });
 
-    proc.on("close", (code) => {
+    proc.on("exit", (code) => {
       clearTimeout(timer);
       resolve(code ?? 1);
     });
