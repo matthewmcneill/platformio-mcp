@@ -34,6 +34,7 @@ import {
   StartMonitorParamsSchema,
   StopMonitorParamsSchema,
   QueryLogsParamsSchema,
+  ResetDeviceParamsSchema,
   CheckTaskStatusParamsSchema,
   GetDashboardUrlParamsSchema,
   GetProjectConfigParamsSchema,
@@ -60,6 +61,7 @@ import { getProjectConfig, getSystemInfo, getProjectContext } from "./tools/proj
 import { cleanProject, checkProject, runTests } from "./tools/build.js";
 import { uploadFilesystem } from "./tools/upload.js";
 import { stopMonitor, queryLogs } from "./tools/monitor.js";
+import { resetDevice } from "./tools/reset.js";
 import { spoolLargeDataset } from "./utils/spooler.js";
 import { listBoardsCore } from "./core/boards.js";
 import { listDevicesCore } from "./core/devices.js";
@@ -457,6 +459,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             searchPattern: { type: "string", description: "Optional Regex pattern to filter the spool for specific keywords." },
             projectDir: { type: "string", description: "Path to the PlatformIO project directory. Agents SHOULD ALWAYS explicitly provide this to ensure operations execute in the correct workspace, unless explicitly instructed otherwise." },
             port: { type: "string", description: "Specific COM port to query logs for." },
+          },
+        },
+      },
+      {
+        name: "reset_device",
+        description: "Hardware-resets the microcontroller by toggling DTR/RTS on the serial port. Use to recover from stuck CH340/CH9102 flow-control state (symptoms: monitor runs but query_logs returns empty or garbled data). This WILL reboot the device.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            port: { type: "string", description: "Serial port to reset. Auto-detected if not provided." },
+            projectDir: { type: "string", description: "Path to the PlatformIO project directory." },
           },
         },
       },
@@ -1075,6 +1088,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "query_logs": {
         const params = QueryLogsParamsSchema.parse(args);
         const result = await queryLogs(params.lines, params.searchPattern, params.taskId, params.logPath, params.projectDir, params.port);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case "reset_device": {
+        const params = ResetDeviceParamsSchema.parse(args);
+        const result = await resetDevice(params.port, params.projectDir);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

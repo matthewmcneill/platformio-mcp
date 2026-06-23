@@ -648,6 +648,11 @@ export const QueryLogsParamsSchema = z.object({
   projectDir: z.string().optional().describe("Target project checkout to query local .log cache instead of global cache."),
 });
 
+export const ResetDeviceParamsSchema = z.object({
+  port: z.string().optional().describe("Serial port to reset (auto-detected if not provided)"),
+  projectDir: z.string().optional().describe("Optional project directory context"),
+});
+
 export const CheckTaskStatusParamsSchema = z.object({
   taskId: z.string().optional().describe("Optional task ID to check status."),
   logPath: z.string().optional().describe("Optional relative log path to check."),
