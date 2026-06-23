@@ -94,4 +94,50 @@ describe('CommandFeed Component', () => {
     
     expect(screen.getAllByText('Legacy Execution').length).toBeGreaterThan(0);
   });
+
+  it('filters out commands without logs when HAS LOGS ONLY is toggled', async () => {
+    const commands: CommandRecord[] = [
+      {
+        id: 'build-with-logs',
+        commandDesc: 'build',
+        timestamp: Date.now(),
+        status: 'success',
+        mcpToolName: 'build_project',
+        mcpRequest: { projectDir: '/tmp' },
+        mcpResponse: { status: 'ok' },
+        tasks: [{
+          taskId: 'task-build-1',
+          type: 'build',
+          status: 'success',
+          logPaths: ['/tmp/.pio-mcp-workspace/logs/build-1.log']
+        }],
+        source: 'agent'
+      },
+      {
+        id: 'lock-no-logs',
+        commandDesc: 'acquire_lock',
+        timestamp: Date.now(),
+        status: 'success',
+        mcpToolName: 'acquire_lock',
+        mcpRequest: { reason: 'build' },
+        mcpResponse: { status: 'ok' },
+        tasks: [],
+        source: 'agent'
+      }
+    ];
+
+    const { container } = render(<CommandFeed commands={commands} onOpenTab={mockOnOpenTab} activeTabRef={null} />);
+    
+    // Both should be visible initially
+    expect(screen.getAllByText('Build Project').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Acquire Lock').length).toBeGreaterThan(0);
+    
+    // Toggle "HAS LOGS ONLY" — it's the second switch (index 1) in the filter bar
+    const switches = container.querySelectorAll('button[role="switch"]');
+    fireEvent.click(switches[1]); // HAS LOGS ONLY is the second switch
+    
+    // Build should still be visible, lock should be hidden
+    expect(screen.getAllByText('Build Project').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('Acquire Lock')).toHaveLength(0);
+  });
 });

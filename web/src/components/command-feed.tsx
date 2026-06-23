@@ -275,6 +275,7 @@ export default function CommandFeed({
   const { token: antdToken } = theme.useToken();
   const [isLauncherOpen, setIsLauncherOpen] = useState(false);
   const [showActiveOnly, setShowActiveOnly] = useState(false);
+  const [showLogsOnly, setShowLogsOnly] = useState(false);
   const [sourceFilter, setSourceFilter] = useState<string>('All Sources');
   
   const getCommandBadgeProps = (cmd: CommandRecord) => {
@@ -358,6 +359,11 @@ export default function CommandFeed({
 
   const displayedCommands = commands.slice().reverse().filter(cmd => {
     if (showActiveOnly && cmd.status !== 'running' && !cmd.tasks?.some(t => t.status === 'running')) return false;
+    
+    if (showLogsOnly) {
+      const hasLogs = cmd.tasks?.some(t => t.logPaths && t.logPaths.length > 0);
+      if (!hasLogs) return false;
+    }
     
     const cmdSource = cmd.source || 'agent';
     if (sourceFilter === 'Agent' && cmdSource !== 'agent') return false;
@@ -609,6 +615,14 @@ export default function CommandFeed({
               onChange={setShowActiveOnly} 
             />
             <Text style={{ fontSize: 11, color: showActiveOnly ? '#1890ff' : '#8c8c8c', whiteSpace: 'nowrap' }}>SHOW ACTIVE ONLY</Text>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 4, border: '1px solid rgba(255,255,255,0.05)' }}>
+            <Switch 
+              size="small" 
+              checked={showLogsOnly} 
+              onChange={setShowLogsOnly} 
+            />
+            <Text style={{ fontSize: 11, color: showLogsOnly ? '#1890ff' : '#8c8c8c', whiteSpace: 'nowrap' }}>HAS LOGS ONLY</Text>
           </div>
           <div style={{ display: 'flex', padding: '4px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 4, border: '1px solid rgba(255,255,255,0.05)', width: '100%' }}>
             <Segmented
