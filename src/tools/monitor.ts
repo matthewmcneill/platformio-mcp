@@ -147,11 +147,15 @@ async function spawnPioMonitor(targetPort: string, projectDir?: string, rootComm
   const monitorArgs = [
     "--port", targetPort,
     "--quiet",
-    "--raw"
+    "--raw",
+    "--rts", "0",     // Non-invasive: prevent device reset via auto-reset circuit (RTS→EN)
   ];
 
   if (daemon.environment) {
     monitorArgs.push("--environment", daemon.environment);
+    if (projectDir) {
+      monitorArgs.push("--project-dir", projectDir);
+    }
   } else {
     monitorArgs.push("--baud", daemon.baudRate.toString());
   }

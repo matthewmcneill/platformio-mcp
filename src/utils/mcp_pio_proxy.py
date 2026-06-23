@@ -27,6 +27,9 @@ import os
 import pty
 import sys
 import subprocess
+import tty
+import struct
+import fcntl
 
 def main():
     if len(sys.argv) < 2:
@@ -37,6 +40,20 @@ def main():
     
     # Create a pseudo-terminal pair
     master_fd, slave_fd = pty.openpty()
+
+    # Configure the slave PTY before spawning the child process.
+    # pty.openpty() defaults to cooked mode (ICANON, ECHO, OPOST) which
+    # causes line buffering and output processing that interferes with
+    # miniterm's raw serial data. Setting raw mode ensures bytes flow
+    # through unbuffered, matching what the `script` command does.
+    tty.setraw(slave_fd)
+
+    # Set a reasonable window size — some programs check this on startup
+    TIOCSWINSZ = 0x80087467  # macOS ioctl constant
+    try:
+        fcntl.ioctl(slave_fd, TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
+    except OSError:
+        pass  # Non-fatal if the ioctl isn't supported
 
     # Spawn the target command, attaching its I/O directly to the slave PTY
     proc = subprocess.Popen(
