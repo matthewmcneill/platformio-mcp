@@ -186,6 +186,32 @@ export const policyProfiles: Record<PolicyProfileName, PolicyConfig> = {
       new Set([...defaultPolicy.deny, "erase_flash", "run_shell_command"]),
     ),
   },
+  standalone: {
+    ...defaultPolicy,
+    allow: Array.from(
+      new Set([
+        ...defaultPolicy.allow,
+        "clean_project",
+        "run_tests",
+        "reset_server_state",
+        "upload_firmware",
+        "upload_filesystem",
+        "agent_validate_project",
+        "agent_build_diagnose",
+        "agent_safe_pin_audit",
+        "agent_flash_monitor_verify",
+        "agent_get_last_report",
+        "agent_generate_board_report",
+        "get_policy_status",
+      ]),
+    ),
+    approval_required: [],
+    deny: defaultPolicy.deny,
+    require_workspace_boundary: false,
+    require_device_lock_for_upload: false,
+    redact_secrets_from_logs: false,
+    audit_all_agent_actions: false,
+  },
 };
 
 /**
