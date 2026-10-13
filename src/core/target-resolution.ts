@@ -4,6 +4,7 @@
  * Provides:
  * - resolveTarget: Resolves one environment, board, and physical device.
  * - verifyTargetBinding: Rejects expired or substituted target bindings.
+ * - normalizePort: Normalizes macOS /dev/tty.* device paths to /dev/cu.*.
  */
 
 import crypto from "node:crypto";
@@ -17,6 +18,14 @@ import { getProjectConfig } from "../tools/projects.js";
 import { parseProjectEnvironments } from "./project-inspection.js";
 
 const MAX_BINDING_TTL_SECONDS = 900;
+
+// Pattern matching noise ports (macOS debug console, bluetooth, audio/phone devices)
+export const NOISE_PORT_PATTERN =
+  /bluetooth|blth|debug-console|jabra|airpods|iphone/i;
+
+/** Normalizes macOS /dev/tty.* serial device paths to /dev/cu.* */
+export const normalizePort = (p: string): string =>
+  p.replace(/^\/dev\/tty\./, "/dev/cu.");
 
 /** Resolved environment metadata from platformio.ini. */
 export interface TargetEnvironment {
@@ -348,15 +357,20 @@ export async function resolveTarget(
     };
   }
 
-  const devices = (discoveredDevices ?? (await listDevicesCore())).filter((device) => {
-    const normalizedPort = device.port.toLowerCase();
-    return !normalizedPort.includes("bluetooth") && !normalizedPort.includes("blth");
-  });
+  const devices = (discoveredDevices ?? (await listDevicesCore())).filter(
+    (device) => {
+      if (NOISE_PORT_PATTERN.test(device.port)) return false;
+      if (device.hwid === "n/a" && device.description === "n/a") return false;
+      return true;
+    },
+  );
   let candidates = input.port
-    ? devices.filter((device) => device.port === input.port)
+    ? devices.filter(
+        (d) => normalizePort(d.port) === normalizePort(input.port!),
+      )
     : devices.filter(
-        (device) =>
-          device.detectedBoard?.toLowerCase() ===
+        (d) =>
+          d.detectedBoard?.toLowerCase() ===
           selectedEnvironment?.board?.toLowerCase(),
       );
   let confidence: TargetResolutionResult["confidence"] = "exact";

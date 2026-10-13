@@ -554,98 +554,124 @@ export const RunTestsParamsSchema = z.object({
 });
 
 // Upload firmware parameters
-export const UploadFirmwareParamsSchema = z.object({
-  projectDir: z
-    .string()
-    .min(1)
-    .describe("Path to the PlatformIO project directory"),
-  port: z
-    .string()
-    .optional()
-    .describe("Upload port (auto-detected if not specified)"),
-  environment: z
-    .string()
-    .optional()
-    .describe("Specific environment to upload (from platformio.ini)"),
-  sessionId: z
-    .string()
-    .optional()
-    .describe("Agent session ID for pipeline lock validation"),
-  verbose: z
-    .boolean()
-    .optional()
-    .describe(
-      "If true, returns the complete verbose upload log in the result instead of truncating it",
-    ),
-  background: z
-    .boolean()
-    .optional()
-    .describe(
-      "If true, dispatches the long-running compilation to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently.",
-    ),
-  startMonitorAfter: z
-    .boolean()
-    .optional()
-    .describe(
-      "If true, automatically starts the background serial monitor after a successful upload, handling OS-level port re-enumeration.",
-    ),
-  targetBinding: z
-    .lazy(() => TargetBindingSchema)
-    .optional()
-    .describe("Optional short-lived binding returned by agent_resolve_target."),
-  automationKey: z
-    .string()
-    .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/u)
-    .optional(),
-  maxRunDurationSeconds: z.number().int().min(1).max(900).optional(),
-});
+export const UploadFirmwareParamsSchema = z
+  .object({
+    projectDir: z
+      .string()
+      .min(1)
+      .describe("Path to the PlatformIO project directory"),
+    port: z
+      .string()
+      .optional()
+      .describe("Upload port (auto-detected if not specified)"),
+    uploadPort: z
+      .string()
+      .optional()
+      .describe("Upload port alias (mapped to port)"),
+    upload_port: z
+      .string()
+      .optional()
+      .describe("Upload port alias (mapped to port)"),
+    environment: z
+      .string()
+      .optional()
+      .describe("Specific environment to upload (from platformio.ini)"),
+    sessionId: z
+      .string()
+      .optional()
+      .describe("Agent session ID for pipeline lock validation"),
+    verbose: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, returns the complete verbose upload log in the result instead of truncating it",
+      ),
+    background: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, dispatches the long-running compilation to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently.",
+      ),
+    startMonitorAfter: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, automatically starts the background serial monitor after a successful upload, handling OS-level port re-enumeration.",
+      ),
+    targetBinding: z
+      .lazy(() => TargetBindingSchema)
+      .optional()
+      .describe("Optional short-lived binding returned by agent_resolve_target."),
+    automationKey: z
+      .string()
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/u)
+      .optional(),
+    maxRunDurationSeconds: z.number().int().min(1).max(900).optional(),
+  })
+  .transform((data) => ({
+    ...data,
+    port: data.port ?? data.uploadPort ?? data.upload_port,
+  }));
 
 // Upload filesystem parameters
-export const UploadFilesystemParamsSchema = z.object({
-  projectDir: z
-    .string()
-    .min(1)
-    .describe("Path to the PlatformIO project directory"),
-  port: z
-    .string()
-    .optional()
-    .describe("Upload port (auto-detected if not specified)"),
-  environment: z
-    .string()
-    .optional()
-    .describe("Specific environment to upload (from platformio.ini)"),
-  sessionId: z
-    .string()
-    .optional()
-    .describe("Agent session ID for pipeline lock validation"),
-  verbose: z
-    .boolean()
-    .optional()
-    .describe(
-      "If true, returns the complete verbose upload log in the result instead of truncating it",
-    ),
-  background: z
-    .boolean()
-    .optional()
-    .describe(
-      "If true, dispatches the long-running compilation to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently.",
-    ),
-  startMonitorAfter: z
-    .boolean()
-    .optional()
-    .describe(
-      "If true, automatically starts the background serial monitor after a successful upload, handling OS-level port re-enumeration.",
-    ),
-  targetBinding: z
-    .lazy(() => TargetBindingSchema)
-    .optional()
-    .describe("Optional short-lived binding returned by agent_resolve_target."),
-  automationKey: z
-    .string()
-    .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/u)
-    .optional(),
-  maxRunDurationSeconds: z.number().int().min(1).max(900).optional(),
-});
+export const UploadFilesystemParamsSchema = z
+  .object({
+    projectDir: z
+      .string()
+      .min(1)
+      .describe("Path to the PlatformIO project directory"),
+    port: z
+      .string()
+      .optional()
+      .describe("Upload port (auto-detected if not specified)"),
+    uploadPort: z
+      .string()
+      .optional()
+      .describe("Upload port alias (mapped to port)"),
+    upload_port: z
+      .string()
+      .optional()
+      .describe("Upload port alias (mapped to port)"),
+    environment: z
+      .string()
+      .optional()
+      .describe("Specific environment to upload (from platformio.ini)"),
+    sessionId: z
+      .string()
+      .optional()
+      .describe("Agent session ID for pipeline lock validation"),
+    verbose: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, returns the complete verbose upload log in the result instead of truncating it",
+      ),
+    background: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, dispatches the long-running compilation to the background and returns immediately to prevent MCP timeouts. You must poll status subsequently.",
+      ),
+    startMonitorAfter: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, automatically starts the background serial monitor after a successful upload, handling OS-level port re-enumeration.",
+      ),
+    targetBinding: z
+      .lazy(() => TargetBindingSchema)
+      .optional()
+      .describe("Optional short-lived binding returned by agent_resolve_target."),
+    automationKey: z
+      .string()
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/u)
+      .optional(),
+    maxRunDurationSeconds: z.number().int().min(1).max(900).optional(),
+  })
+  .transform((data) => ({
+    ...data,
+    port: data.port ?? data.uploadPort ?? data.upload_port,
+  }));
 
 // Search libraries parameters
 export const SearchLibrariesParamsSchema = z.object({
