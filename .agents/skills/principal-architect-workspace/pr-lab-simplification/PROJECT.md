@@ -4,8 +4,9 @@
 - **Base Branch:** `fix/v3.1.0-local-patches` (our fork's patched v3.1.0)
 - **Remote:** `fork` (github.com/matthewmcneill/platformio-mcp)
 - **Upstream Issues:** #40, #27, #39
-- **Status:** EXECUTING — WO1/3
+- **Status:** COMPLETE — all 3 WOs executed, committed, pushed to fork
 - **User Approval:** 2026-10-13T21:08 — user approved decomposition ("proceed")
+
 - **Created:** 2026-10-13
 
 ## Objective
@@ -28,9 +29,9 @@ Reduce the lab infrastructure friction that blocks single-user desk workflows. T
 
 ## Work Order Ledger
 
-- **[ ] [wo1-standalone-profile](wo1-standalone-profile/WORKORDER.md):** Add `standalone` policy profile + bypass target resolution when env+port explicit. *PR1: Standalone Profile*
-- **[ ] [wo2-extends-parsing](wo2-extends-parsing/WORKORDER.md):** Fix `parseTargetEnvironments` to resolve `extends` inheritance + fix duplicate parser in `agent.ts`. *PR2: Extends INI Parsing*
-- **[ ] [wo3-esp32s3-cdc](wo3-esp32s3-cdc/WORKORDER.md):** Add Espressif VID:PIDs, filter macOS noise ports, accept `uploadPort` aliases. *PR3: ESP32-S3 CDC Resolution*
+- **[x] [wo1-standalone-profile](wo1-standalone-profile/WORKORDER.md):** Add `standalone` policy profile + bypass target resolution when env+port explicit. *PR1: Standalone Profile*
+- **[x] [wo2-extends-parsing](wo2-extends-parsing/WORKORDER.md):** Fix `parseTargetEnvironments` to resolve `extends` inheritance + fix duplicate parser in `agent.ts`. *PR2: Extends INI Parsing*
+- **[x] [wo3-esp32s3-cdc](wo3-esp32s3-cdc/WORKORDER.md):** Add Espressif VID:PIDs, filter macOS noise ports, accept `uploadPort` aliases. *PR3: ESP32-S3 CDC Resolution*
 
 ## Modules & Components
 
