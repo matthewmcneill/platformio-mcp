@@ -122,3 +122,79 @@ it("does not fall back to raw target metadata when computed configuration fails"
   vi.mocked(getProjectConfig).mockRejectedValueOnce(new Error("invalid inheritance"));
   await expect(resolveTarget({ projectDir, environment: "native" }, [device("COM7")])).rejects.toThrow("invalid inheritance");
 });
+
+describe("extends inheritance parsing", () => {
+  it("inherits board from [env:base] via extends = env:base", () => {
+    const parsed = parseTargetEnvironments(`
+[env:base]
+board = esp32dev
+
+[env:child]
+extends = env:base
+`);
+    const child = parsed.environments.find((e) => e.name === "child");
+    expect(child).toBeDefined();
+    expect(child?.board).toBe("esp32dev");
+  });
+
+  it("inherits board from [common] section via extends = common", () => {
+    const parsed = parseTargetEnvironments(`
+[common]
+board = esp32dev
+
+[env:child]
+extends = common
+`);
+    const child = parsed.environments.find((e) => e.name === "child");
+    expect(child).toBeDefined();
+    expect(child?.board).toBe("esp32dev");
+  });
+
+  it("resolves multi-level extends inheritance (a -> b -> c)", () => {
+    const parsed = parseTargetEnvironments(`
+[env:a]
+extends = env:b
+
+[env:b]
+extends = env:c
+
+[env:c]
+board = esp32dev
+`);
+    const envA = parsed.environments.find((e) => e.name === "a");
+    expect(envA).toBeDefined();
+    expect(envA?.board).toBe("esp32dev");
+  });
+
+  it("handles circular extends without infinite looping, logs a warning, and leaves board undefined", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const parsed = parseTargetEnvironments(`
+[env:a]
+extends = env:b
+
+[env:b]
+extends = env:a
+`);
+    const envA = parsed.environments.find((e) => e.name === "a");
+    const envB = parsed.environments.find((e) => e.name === "b");
+    expect(envA?.board).toBeUndefined();
+    expect(envB?.board).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Circular extends detected"));
+    warnSpy.mockRestore();
+  });
+
+  it("allows child to override parent's board value", () => {
+    const parsed = parseTargetEnvironments(`
+[env:base]
+board = esp32dev
+
+[env:child]
+extends = env:base
+board = esp32-s3-devkitc-1
+`);
+    const child = parsed.environments.find((e) => e.name === "child");
+    expect(child).toBeDefined();
+    expect(child?.board).toBe("esp32-s3-devkitc-1");
+  });
+});
+
