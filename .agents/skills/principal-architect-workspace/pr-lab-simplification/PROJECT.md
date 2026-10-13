@@ -4,7 +4,8 @@
 - **Base Branch:** `fix/v3.1.0-local-patches` (our fork's patched v3.1.0)
 - **Remote:** `fork` (github.com/matthewmcneill/platformio-mcp)
 - **Upstream Issues:** #40, #27, #39
-- **Status:** PLANNING — awaiting user approval of decomposition
+- **Status:** EXECUTING — WO1/3
+- **User Approval:** 2026-10-13T21:08 — user approved decomposition ("proceed")
 - **Created:** 2026-10-13
 
 ## Objective
