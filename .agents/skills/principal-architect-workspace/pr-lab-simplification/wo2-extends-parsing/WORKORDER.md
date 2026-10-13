@@ -80,19 +80,39 @@ If you discover a defect, upstream bug, or concern outside your boundary box, su
 <!-- Written by the worker at task completion -->
 
 ### Status
-(pending)
+Complete. Implementation fully validated.
 
 ### Changes Made
-(pending)
+- `src/core/target-resolution.ts`:
+  - Added `extends?: string[]` field to `TargetEnvironment` interface.
+  - Enhanced `parseTargetEnvironments`:
+    - Captures `extends` directives for environments and base sections (`split(",")`, `.trim()`, `.replace(/^env:/i, "")`).
+    - Captures non-env sections (e.g. `[base]`, `[common]`, `[env]`) into `baseSections` Map.
+    - Resolves inheritance by traversing ancestors with cycle detection via a `Set<string>`, looking up named environments first then base sections, and copying `board` and `framework` from the first defining ancestor.
+    - Emits a `console.warn` upon circular extends and cleanly leaves `board` undefined.
+    - Preserves child explicitly declared fields over inherited values.
+- `src/tools/agent.ts`:
+  - Removed duplicate parser functions `parseEnvironmentsFromIni` and `parseDefaultEnvironments`.
+  - Imported and used `parseTargetEnvironments` and `TargetEnvironment` from `target-resolution.js`.
+  - Updated callers in `agentValidateProject`, `inferBoardIdForProject`, and `inferArtifactTargetEnvironments`.
+  - Updated `resolveEnvironment` and `buildValidationNextSteps` parameter types from `ParsedEnvironment[]` to `TargetEnvironment[]`.
+- `tests/target-resolution.test.ts`:
+  - Added 5 unit tests for `extends` inheritance: `env:base` inheritance, `[common]` section inheritance, multi-level `a -> b -> c` resolution, circular extends cycle handling/warning, and child value overrides.
+- `tests/agent-workflows.test.ts`:
+  - Added integration test verifying `agentValidateProject` succeeds without false missing config errors when child extends base.
 
 ### Decisions Made
-(pending)
+- Chose Option A from the work order instructions: deleted duplicate `parseEnvironmentsFromIni` and `parseDefaultEnvironments` in `src/tools/agent.ts` in favor of importing `parseTargetEnvironments` from `src/core/target-resolution.ts`.
+- Implemented case-insensitive section matching fallback when resolving parent sections to handle standard INI casing variations robustly.
 
 ### Dead Ends & Warnings
-(pending)
+- None encountered. Cycle detection cleanly halts via `Set` tracking without infinite recursion.
 
 ### Out-of-Scope Findings
-(pending)
+- Running the full suite (`npm test`) showed 2 failures in unrelated test files:
+  - `tests/cli-entrypoint.test.ts`: `one-shot commands terminate > does not truncate a large payload when exiting` (boards command returned code 1 in this environment).
+  - `tests/codex-plugin-skills.test.ts`: checks for Codex plugin skill synchronization against pre-existing files.
+  Neither is related to `target-resolution.ts` or `agent.ts`.
 
 ### Blockers
-(pending)
+- None.
